@@ -9,6 +9,7 @@ from .input import (
 )
 from .memory.interface import MemoryInterface, MemoryType
 from .memory.manager import MemoryManager, MemoryScope
+from .nlp import DialogueManager, NLPProcessor
 from .runtime import InputSourceConfig, RealTimeProcessor
 
 __all__ = [
@@ -21,6 +22,8 @@ __all__ = [
     "MemoryScope",
     "MemoryInterface",
     "MemoryType",
+    "NLPProcessor",
+    "DialogueManager",
     "RealTimeProcessor",
     "InputSourceConfig",
 ]
