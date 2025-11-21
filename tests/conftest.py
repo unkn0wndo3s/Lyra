@@ -12,3 +12,12 @@ def temp_memory_manager(tmp_path):
     manager.close()
 
 
+@pytest.fixture
+def event_loop():
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
