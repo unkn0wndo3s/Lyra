@@ -43,11 +43,15 @@ class TemplateResponder(BaseResponder):
         else:
             text = self._generic_response(tone)
 
+        text = tone.apply(text)
+
         metadata = {
             "intent": intent,
             "tone": tone.tone,
+            "style_hint": tone.style_hint,
             "voice": tone.voice,
             "notes": tone.notes,
+            "escalation": tone.escalation,
         }
         return ResponseCandidate(text=text, strategy=self.name, metadata=metadata)
 

@@ -46,7 +46,9 @@ The tone metadata in `ResponsePlan.guidance` comes directly from the sentiment
 module. This ensures responses remain empathetic during negative interactions
 and upbeat when the conversation is positive. The dialogue manager stores the
 latest tone hints inside the short-term context so future turns can adjust
-even if a different responder is used.
+even if a different responder is used. The `StyleGuide.apply()` helper adds
+emotion-aware prefixes/suffixes (e.g., empathy statements for negative tone or
+celebratory language for positive tone) before the candidate is returned.
 
 ### Extending
 
