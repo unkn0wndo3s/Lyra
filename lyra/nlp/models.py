@@ -65,6 +65,7 @@ class DialogueTurn:
     text: str
     intent: str
     sentiment: str
+    emotion: str = "neutral"
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

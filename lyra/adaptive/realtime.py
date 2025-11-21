@@ -37,6 +37,7 @@ class RealTimeLearner:
         facts.extend(self._extract_identity_rules(response.nlp))
         facts.extend(self._extract_status_rules(response, session_id))
         facts.extend(self._extract_entity_facts(response.nlp, session_id))
+        facts.extend(self._extract_emotion_state(response))
         for fact in facts:
             self._persist_fact(fact)
         return facts
@@ -102,6 +103,35 @@ class RealTimeLearner:
                         ttl_seconds=self.default_ttl_seconds,
                     )
                 )
+        return facts
+
+    def _extract_emotion_state(
+        self,
+        response: DialogueResponse,
+    ) -> List[LearnedFact]:
+        tone = response.nlp.sentiment.label
+        facts: List[LearnedFact] = []
+        facts.append(
+            LearnedFact(
+                key=f"session:{response.session_id}:emotion",
+                value={"emotion": tone, "source": "sentiment"},
+                category="emotion_state",
+                tags=["emotion", response.session_id],
+                importance=1.5 if tone != "neutral" else 1.0,
+                ttl_seconds=self.default_ttl_seconds,
+                metadata={"emotion": tone},
+            )
+        )
+        facts.append(
+            LearnedFact(
+                key="user:emotion:last",
+                value={"session": response.session_id, "emotion": tone},
+                category="emotion_state",
+                tags=["emotion", "user"],
+                importance=1.5,
+                metadata={"session_id": response.session_id, "emotion": tone},
+            )
+        )
         return facts
 
     # ------------------------------------------------------------------ #

@@ -62,6 +62,9 @@ class ResponseGenerator:
             sentiment=dialogue_response.nlp.sentiment,
             persona=persona,
         )
+        plan.guidance.notes = (
+            f"{plan.guidance.notes} emotion:{dialogue_response.nlp.sentiment.label}"
+        ).strip()
         if self.adaptive_learner:
             recommendation = self.adaptive_learner.suggest_policy(
                 dialogue_response.nlp.intent.label,

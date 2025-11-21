@@ -53,6 +53,7 @@ class DialogueManager:
             text=text,
             intent=result.intent.label,
             sentiment=result.sentiment.label,
+            emotion=result.sentiment.label,
             metadata={
                 "confidence": result.intent.confidence,
                 "polarity": result.sentiment.polarity,
@@ -135,6 +136,7 @@ class DialogueManager:
                     text=turn_data.get("text", ""),
                     intent=turn_data.get("intent", "unknown"),
                     sentiment=turn_data.get("sentiment", "neutral"),
+                    emotion=turn_data.get("emotion", turn_data.get("sentiment", "neutral")),
                     metadata=turn_data.get("metadata", {}),
                 )
             )
@@ -155,6 +157,7 @@ class DialogueManager:
             "confidence": result.intent.confidence,
             "entities": [entity.__dict__ for entity in result.entities],
             "sentiment": turn.sentiment,
+            "emotion": turn.emotion,
             "polarity": result.sentiment.polarity,
             "tone": (
                 {
