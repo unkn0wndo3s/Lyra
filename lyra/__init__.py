@@ -8,6 +8,7 @@ from .input import (
 )
 from .memory.interface import MemoryInterface, MemoryType
 from .memory.manager import MemoryManager, MemoryScope
+from .runtime import InputSourceConfig, RealTimeProcessor
 
 __all__ = [
     "InputManager",
@@ -18,6 +19,8 @@ __all__ = [
     "MemoryScope",
     "MemoryInterface",
     "MemoryType",
+    "RealTimeProcessor",
+    "InputSourceConfig",
 ]
 
 
