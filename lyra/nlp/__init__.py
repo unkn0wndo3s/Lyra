@@ -8,8 +8,10 @@ from .models import (
     NLPResult,
     SentimentResult,
     TokenData,
+    ToneDirective,
 )
 from .processor import NLPProcessor
+from .sentiment import SentimentAnalyzer
 
 __all__ = [
     "NLPProcessor",
@@ -20,6 +22,8 @@ __all__ = [
     "DialogueTurn",
     "TokenData",
     "SentimentResult",
+    "ToneDirective",
+    "SentimentAnalyzer",
 ]
 
 

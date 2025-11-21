@@ -25,6 +25,7 @@ response = dialogue.process_input("Hello Lyra, how's the status?")
 print(response.nlp.intent.label)        # e.g. "greeting"
 print(response.nlp.sentiment.label)     # e.g. "positive"
 print(len(response.context.turns))      # context window
+print(response.nlp.sentiment.tone.style)  # e.g. "empathetic"
 ```
 
 ### Sentiment & Intent
@@ -34,6 +35,10 @@ print(len(response.context.turns))      # context window
 - Intent detection currently relies on keyword heuristics plus structural cues
   (question marks, imperative verbs). Extend `intent_keywords` when
   instantiating `NLPProcessor` for domain-specific intents.
+- Additional tone guidance is produced by the `SentimentAnalyzer`, which fuses
+  spaCy/TextBlob scores with optional VADER estimates. The resulting
+  `SentimentResult.tone` recommends response style/voice and flags when to
+  escalate (e.g., highly negative, subjective statements).
 
 ### Memory Integration
 

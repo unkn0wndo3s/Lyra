@@ -24,10 +24,22 @@ class EntityData:
 
 
 @dataclass
+class ToneDirective:
+    """Guidance on how the agent should respond given a sentiment reading."""
+
+    style: str
+    voice: str
+    escalate: bool = False
+    notes: str = ""
+
+
+@dataclass
 class SentimentResult:
     polarity: float
     subjectivity: float
     label: str
+    tone: Optional[ToneDirective] = None
+    sources: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass

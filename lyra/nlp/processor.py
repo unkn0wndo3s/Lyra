@@ -22,6 +22,7 @@ from .models import (
     SentimentResult,
     TokenData,
 )
+from .sentiment import SentimentAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class NLPProcessor:
         self.nlp = self._load_model(model_name)
         self.enable_sentiment = enable_sentiment
         self.intent_keywords = intent_keywords or self._default_intent_keywords()
+        self.sentiment_analyzer = SentimentAnalyzer() if enable_sentiment else None
 
         if enable_sentiment and SpacyTextBlob:
             if "spacytextblob" not in self.nlp.pipe_names:
@@ -107,22 +109,9 @@ class NLPProcessor:
             return spacy.blank("en")
 
     def _resolve_sentiment(self, doc: Doc) -> SentimentResult:
-        if self.enable_sentiment and hasattr(doc._, "polarity"):
-            polarity = float(doc._.polarity)
-            subjectivity = float(doc._.subjectivity)
-        else:
-            polarity = 0.0
-            subjectivity = 0.0
-        label = "neutral"
-        if polarity > 0.15:
-            label = "positive"
-        elif polarity < -0.15:
-            label = "negative"
-        return SentimentResult(
-            polarity=polarity,
-            subjectivity=subjectivity,
-            label=label,
-        )
+        if self.sentiment_analyzer:
+            return self.sentiment_analyzer.analyze(doc.text, doc=doc)
+        return SentimentResult(polarity=0.0, subjectivity=0.0, label="neutral")
 
     def _predict_intent(self, doc: Doc) -> IntentPrediction:
         lowered = doc.text.lower()

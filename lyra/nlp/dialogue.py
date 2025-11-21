@@ -61,6 +61,14 @@ class DialogueManager:
         )
         context.append(turn, max_turns=self.context_window)
         context.metadata["last_updated"] = datetime.utcnow().isoformat()
+        if result.sentiment.tone:
+            tone = result.sentiment.tone
+            context.metadata["tone_hint"] = {
+                "style": tone.style,
+                "voice": tone.voice,
+                "escalate": tone.escalate,
+                "notes": tone.notes,
+            }
 
         self._persist_context(session_id, context)
         if self.long_term_retention:
@@ -148,6 +156,16 @@ class DialogueManager:
             "entities": [entity.__dict__ for entity in result.entities],
             "sentiment": turn.sentiment,
             "polarity": result.sentiment.polarity,
+            "tone": (
+                {
+                    "style": result.sentiment.tone.style,
+                    "voice": result.sentiment.tone.voice,
+                    "notes": result.sentiment.tone.notes,
+                    "escalate": result.sentiment.tone.escalate,
+                }
+                if result.sentiment.tone
+                else None
+            ),
             "metadata": turn.metadata,
         }
         self.memory_manager.set_memory(
