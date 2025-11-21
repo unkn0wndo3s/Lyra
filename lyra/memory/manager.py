@@ -25,11 +25,10 @@ class ShortTermMemoryStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.path.exists():
-            self._write_payload([])
+        self._items = self._load_payload()
         self.purge_expired()
 
-    def _read_payload(self) -> List[Dict[str, Any]]:
+    def _load_payload(self) -> List[Dict[str, Any]]:
         if not self.path.exists():
             return []
         with self.path.open("r", encoding="utf-8") as stream:
@@ -39,10 +38,15 @@ class ShortTermMemoryStore:
                 return []
         return payload.get("items", [])
 
+    def _read_payload(self) -> List[Dict[str, Any]]:
+        return list(self._items)
+
     def _write_payload(self, items: Iterable[Dict[str, Any]]) -> None:
-        payload = {"items": list(items)}
+        items_list = list(items)
+        payload = {"items": items_list}
         with self.path.open("w", encoding="utf-8") as stream:
             json.dump(payload, stream, indent=2)
+        self._items = items_list
 
     def purge_expired(self) -> int:
         """Remove expired short-term memories."""
@@ -80,7 +84,7 @@ class ShortTermMemoryStore:
         )
         remaining = [
             ShortTermMemoryRecord.from_payload(payload)
-            for payload in self._read_payload()
+            for payload in self._items
             if payload["key"] != key
         ]
         remaining.append(record)
@@ -90,7 +94,7 @@ class ShortTermMemoryStore:
     def get(
         self, key: str, *, include_expired: bool = False
     ) -> Optional[ShortTermMemoryRecord]:
-        for payload in self._read_payload():
+        for payload in self._items:
             if payload["key"] != key:
                 continue
             record = ShortTermMemoryRecord.from_payload(payload)
@@ -103,7 +107,7 @@ class ShortTermMemoryStore:
     def delete(self, key: str) -> bool:
         removed = False
         filtered = []
-        for payload in self._read_payload():
+        for payload in self._items:
             if payload["key"] == key:
                 removed = True
                 continue
@@ -116,7 +120,7 @@ class ShortTermMemoryStore:
         self.purge_expired()
         return [
             ShortTermMemoryRecord.from_payload(payload)
-            for payload in self._read_payload()
+            for payload in self._items
         ]
 
 
