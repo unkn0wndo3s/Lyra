@@ -60,4 +60,12 @@ receive the full `ResponsePlan`, enabling advanced use cases such as:
 - Streaming responses from transformer pipelines (e.g., Hugging Face models).
 - Applying domain-specific guardrails prior to returning text.
 
+### Adaptive Learning
+
+Instantiate `ResponseGenerator(adaptive_learner=AdaptiveLearner())` to feed
+reward signals back into the system. After delivering a response, call
+`record_feedback(...)` with a reward value to update the `AdaptiveLearner`.
+Future turns automatically query `AdaptiveLearner.suggest_policy()` to tweak
+tone and voice per intent based on historical performance.
+
 
