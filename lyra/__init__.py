@@ -10,6 +10,7 @@ from .input import (
 )
 from .memory.interface import MemoryInterface, MemoryType
 from .memory.manager import MemoryManager, MemoryScope
+from .memory.retrieval import MemoryRetriever, RetrievedMemory
 from .nlp import DialogueManager, NLPProcessor, SentimentAnalyzer, ToneDirective
 from .response import (
     BaseResponder,
@@ -33,6 +34,8 @@ __all__ = [
     "MemoryScope",
     "MemoryInterface",
     "MemoryType",
+    "MemoryRetriever",
+    "RetrievedMemory",
     "NLPProcessor",
     "DialogueManager",
     "SentimentAnalyzer",
