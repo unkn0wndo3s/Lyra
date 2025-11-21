@@ -47,10 +47,31 @@ The loader exposes four main helpers for runtime control:
 | `reload_all_modules()` | Calls `importlib.reload` on every module that has already been loaded. |
 | `reload_module(name)` | Reloads a single named module; raises `KeyError` if it was never loaded. |
 | `load_unloaded_modules()` | Imports only the modules that have been added since the last load. |
+| `get_namespace()` | Produces a merged dictionary of classes/functions drawn from multiple modules. |
 
 Each helper updates the global `LOADED_MODULES` dictionary so you can inspect
 what is currently available (for example by calling
 `summarize_loaded_modules(LOADED_MODULES.items())`).
+
+### Using Exports from Multiple Modules
+
+`get_namespace()` lets you pull functions and classes from several modules into
+one dictionary so they can be used side-by-side without manual lookups:
+
+```python
+from module_loader import get_namespace
+
+namespace = get_namespace()  # defaults to all modules, qualified names
+add = namespace["math_utils.add"]
+shout = namespace["string_utils.shout"]
+
+print(add(2, 3))      # 5
+print(shout("Lyra"))  # LYRA!
+```
+
+Pass a list of module names to limit the selection, disable `qualified_names`
+for raw symbol names (will raise on collisions), or set
+`include_classes=False`/`include_functions=False` to filter what gets merged.
 
 ## Running the Script
 

@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Callable, Dict, Iterable
+from typing import Callable, Dict, Iterable, Optional
 
 BASE_DIR = Path(__file__).parent
 MODULES_PACKAGE = "modules"
@@ -91,6 +91,13 @@ def load_module(module_name: str) -> LoadedModule:
     return _import_module(module_name)
 
 
+def _get_or_load_module(module_name: str) -> LoadedModule:
+    """Return a loaded module, loading it on-demand if necessary."""
+    if module_name not in LOADED_MODULES:
+        return load_module(module_name)
+    return LOADED_MODULES[module_name]
+
+
 def reload_module(module_name: str) -> LoadedModule:
     """Reload a previously loaded module."""
     if module_name not in LOADED_MODULES:
@@ -128,6 +135,54 @@ def summarize_loaded_modules(modules: Iterable[tuple[str, LoadedModule]]) -> str
     return "\n".join(lines)
 
 
+def get_namespace(
+    module_names: Optional[Iterable[str]] = None,
+    *,
+    include_classes: bool = True,
+    include_functions: bool = True,
+    qualified_names: bool = True,
+) -> Dict[str, object]:
+    """
+    Merge exports from multiple modules into a single dictionary.
+
+    Args:
+        module_names: iterable of module names to pull symbols from. When None,
+            all loaded modules are used (loading them on-demand if necessary).
+        include_classes: include class definitions in the namespace when True.
+        include_functions: include function definitions in the namespace when True.
+        qualified_names: when True, keys are prefixed with the module name
+            (``math_utils.add``). When False, collisions raise a ValueError.
+    """
+
+    if not include_classes and not include_functions:
+        raise ValueError("At least one of include_classes or include_functions must be True.")
+
+    selected_modules = list(module_names) if module_names is not None else list(discover_module_names())
+    if not selected_modules:
+        return {}
+
+    namespace: Dict[str, object] = {}
+
+    for module_name in selected_modules:
+        loaded = _get_or_load_module(module_name)
+        symbols: Dict[str, Dict[str, object]] = {}
+        if include_classes:
+            symbols["classes"] = loaded.classes
+        if include_functions:
+            symbols["functions"] = loaded.functions
+
+        for symbol_dict in symbols.values():
+            for name, obj in symbol_dict.items():
+                key = f"{module_name}.{name}" if qualified_names else name
+                if key in namespace:
+                    raise ValueError(
+                        f"Symbol name collision encountered for '{key}'. "
+                        "Re-run with qualified_names=True to avoid ambiguity."
+                    )
+                namespace[key] = obj
+    return namespace
+
+
 def _default_load() -> None:
     """Default behavior: load every module when the script starts."""
     load_all_modules()
@@ -146,6 +201,12 @@ def main() -> None:
     if newly_loaded:
         print("\nModules that were loaded later:")
         print(summarize_loaded_modules(newly_loaded.items()))
+
+    print("\nMerged namespace demonstration:")
+    namespace = get_namespace()
+    if namespace:
+        for key in sorted(namespace.keys()):
+            print(f" - {key}")
 
 
 # Perform the default loading as soon as the module is imported.
