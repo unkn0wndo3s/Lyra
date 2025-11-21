@@ -5,6 +5,7 @@ from .input import (
     InputManager,
     InputResult,
     InputType,
+    SpeechStreamHandle,
 )
 from .memory.interface import MemoryInterface, MemoryType
 from .memory.manager import MemoryManager, MemoryScope
@@ -15,6 +16,7 @@ __all__ = [
     "InputType",
     "InputResult",
     "InputCaptureError",
+    "SpeechStreamHandle",
     "MemoryManager",
     "MemoryScope",
     "MemoryInterface",

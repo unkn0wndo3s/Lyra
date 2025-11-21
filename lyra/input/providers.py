@@ -22,6 +22,28 @@ SPEECH_RECOGNITION_AVAILABLE = sr is not None
 from .models import InputCaptureError, InputResult, InputType
 
 
+@dataclass
+class SpeechStreamHandle:
+    """Controller returned by continuous listening sessions."""
+
+    stop_callable: Callable[[bool], None]
+    microphone: Any
+    callback: Callable[[InputResult], None]
+    active: bool = True
+
+    def stop(self, *, wait_for_stop: bool = True) -> None:
+        if not self.active:
+            return
+        self.stop_callable(wait_for_stop)
+        self.active = False
+
+    def __enter__(self) -> "SpeechStreamHandle":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.stop(wait_for_stop=False)
+
+
 class BaseInputProvider:
     """Common utilities for all providers."""
 
@@ -51,11 +73,23 @@ class SpeechInputProvider(BaseInputProvider):
 
     input_type = InputType.SPEECH
 
-    def __init__(self, recognizer: Optional[Any] = None, microphone_class: Optional[Any] = None) -> None:
+    def __init__(
+        self,
+        recognizer: Optional[Any] = None,
+        microphone_class: Optional[Any] = None,
+        *,
+        energy_threshold: Optional[int] = None,
+        dynamic_energy_threshold: bool = True,
+        pause_threshold: float = 0.8,
+    ) -> None:
         if sr is None:
             raise RuntimeError("speech_recognition is not installed. Install it to use SpeechInputProvider.")
         self.recognizer = recognizer or sr.Recognizer()
         self.microphone_class = microphone_class or sr.Microphone
+        if energy_threshold is not None:
+            self.recognizer.energy_threshold = energy_threshold
+        self.recognizer.dynamic_energy_threshold = dynamic_energy_threshold
+        self.recognizer.pause_threshold = pause_threshold
 
     def transcribe_from_microphone(
         self,
@@ -88,16 +122,73 @@ class SpeechInputProvider(BaseInputProvider):
 
     def _transcribe_audio(self, audio: Any, *, language: str, engine: str) -> InputResult:
         try:
-            if engine == "google":
-                text = self.recognizer.recognize_google(audio, language=language)
-            elif engine == "sphinx":
-                text = self.recognizer.recognize_sphinx(audio, language=language)
-            else:
-                raise ValueError(f"Unsupported engine: {engine}")
+            text = self._recognize_with_engine(audio, engine, language)
         except Exception as exc:  # noqa: BLE001
             raise InputCaptureError(f"Speech transcription failed: {exc}") from exc
         metadata = {"language": language, "engine": engine}
         return self._wrap(text, metadata)
+
+    def _recognize_with_engine(self, audio: Any, engine: str, language: str) -> str:
+        engine = engine.lower()
+        if engine == "google":
+            return self.recognizer.recognize_google(audio, language=language)
+        if engine == "sphinx":
+            return self.recognizer.recognize_sphinx(audio, language=language)
+        raise ValueError(f"Unsupported engine: {engine}")
+
+    def start_continuous_listening(
+        self,
+        callback: Callable[[InputResult], None],
+        *,
+        languages: Optional[List[str]] = None,
+        engines: Optional[List[str]] = None,
+        phrase_time_limit: Optional[int] = None,
+        ambient_duration: float = 1.0,
+        error_handler: Optional[Callable[[Exception], None]] = None,
+    ) -> SpeechStreamHandle:
+        """Begin continuous listening in a background thread.
+
+        The callback receives InputResult objects for each successful transcription.
+        """
+
+        if sr is None:
+            raise RuntimeError("speech_recognition is not installed.")
+        if callback is None:
+            raise ValueError("callback must be provided for continuous listening.")
+
+        languages = languages or ["en-US"]
+        engines = engines or ["google"]
+
+        microphone = self.microphone_class()
+        with microphone as source:
+            self.recognizer.adjust_for_ambient_noise(source, duration=ambient_duration)
+
+        def _background(recognizer: Any, audio: Any) -> None:
+            last_error: Optional[Exception] = None
+            for language in languages:
+                for engine in engines:
+                    try:
+                        text = self._recognize_with_engine(audio, engine, language)
+                    except sr.UnknownValueError as exc:  # type: ignore[attr-defined]
+                        last_error = exc
+                        continue
+                    except sr.RequestError as exc:  # type: ignore[attr-defined]
+                        last_error = exc
+                        continue
+                    except Exception as exc:  # noqa: BLE001
+                        last_error = exc
+                        continue
+                    else:
+                        metadata = {"language": language, "engine": engine}
+                        callback(self._wrap(text, metadata))
+                        return
+            if error_handler and last_error:
+                error_handler(last_error)
+
+        stop_callable = self.recognizer.listen_in_background(
+            microphone, _background, phrase_time_limit=phrase_time_limit
+        )
+        return SpeechStreamHandle(stop_callable=stop_callable, microphone=microphone, callback=callback)
 
 
 class ImageInputProvider(BaseInputProvider):

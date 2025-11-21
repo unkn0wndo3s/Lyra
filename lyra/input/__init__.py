@@ -7,6 +7,7 @@ from .providers import (
     ExternalSensorProvider,
     ImageInputProvider,
     SpeechInputProvider,
+    SpeechStreamHandle,
     TextInputProvider,
 )
 
@@ -17,6 +18,7 @@ __all__ = [
     "InputCaptureError",
     "TextInputProvider",
     "SpeechInputProvider",
+    "SpeechStreamHandle",
     "ImageInputProvider",
     "ExternalSensorProvider",
     "ExternalSensorConfiguration",
