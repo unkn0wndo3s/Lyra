@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -37,5 +37,16 @@ class PolicyRecommendation:
     voice: str
     confidence: float
     notes: str = ""
+
+
+@dataclass
+class LearnedFact:
+    key: str
+    value: Any
+    category: str = "learned_fact"
+    tags: List[str] = field(default_factory=list)
+    importance: float = 1.0
+    ttl_seconds: Optional[int] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 

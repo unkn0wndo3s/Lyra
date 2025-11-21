@@ -1,6 +1,13 @@
 """Lyra core package exposing high-level interfaces."""
 
-from .adaptive import AdaptiveLearner, FeedbackRecord, PolicyRecommendation, PolicyStats
+from .adaptive import (
+    AdaptiveLearner,
+    FeedbackRecord,
+    LearnedFact,
+    PolicyRecommendation,
+    PolicyStats,
+    RealTimeLearner,
+)
 from .input import (
     InputCaptureError,
     InputManager,
@@ -42,8 +49,10 @@ __all__ = [
     "ToneDirective",
     "AdaptiveLearner",
     "FeedbackRecord",
+    "LearnedFact",
     "PolicyStats",
     "PolicyRecommendation",
+    "RealTimeLearner",
     "ResponseGenerator",
     "ResponseRequest",
     "ResponsePlan",
