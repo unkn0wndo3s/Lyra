@@ -22,7 +22,8 @@ Lyra/
     ├── live_speech.py      # Live speech-to-text streamer (Vosk + sounddevice)
     ├── emotion_interpreter.py  # Heuristic emotion detection for transcripts
     ├── voice_identity.py   # Voice sampling and recognition utilities
-    └── realtime_monitor.py # Fusion of STT + emotions + speaker ID
+    ├── realtime_monitor.py # Fusion of STT + emotions + speaker ID
+    └── mouse_controller.py # Non-linear mouse automation helpers
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -68,6 +69,7 @@ stream = namespace["live_speech.LiveSpeechStreamer"]
 emotion_interpret = namespace["emotion_interpreter.interpret_text"]
 voice_identifier_cls = namespace["voice_identity.VoiceIdentifier"]
 insight_session = namespace["realtime_monitor.start_insight_session"]
+mouse_move = namespace["mouse_controller.move_mouse"]
 
 streamer = stream(model_path="/path/to/vosk-model")
 emotion = emotion_interpret("I am thrilled to be here!")
@@ -76,6 +78,7 @@ identifier = voice_identifier_cls()
 print(identifier.known_speakers)  # ()
 # launch full realtime session (requires optional deps)
 session = insight_session()
+mouse_move(200, 300)
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -234,4 +237,26 @@ Each emitted insight contains:
 You can pass your own `on_insight` callback when calling
 `start_insight_session(on_insight=my_handler, ...)` to integrate with logs,
 dashboards, or downstream automations.
+
+## Mouse Controller Module
+
+`modules/mouse_controller.py` exposes high-quality cursor automation built on
+non-linear Bézier paths so movements feel human rather than robotic. Install the
+optional backend:
+
+```bash
+pip install pyautogui
+```
+
+Key helpers:
+
+- `move_mouse(x, y, profile=None)` – travel to coordinates using smooth easing.
+- `drag_mouse(x, y, button="left")` – drag with curved motion.
+- `left_click()`, `right_click()`, `middle_click()`, `double_click()`.
+- `click_and_drag((x1, y1), (x2, y2))` – combine move and drag in one call.
+
+You can customize movement using `MotionProfile(duration=0.5, curve_strength=0.3)`
+for faster/slower timings or sharper arcs. All functions raise
+`BackendUnavailable` when `pyautogui` is not installed, so you can guard usage
+with `mouse_controller.backend_available()`.
 
