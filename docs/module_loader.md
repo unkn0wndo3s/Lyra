@@ -25,7 +25,8 @@ Lyra/
     ├── realtime_monitor.py # Fusion of STT + emotions + speaker ID
     ├── mouse_controller.py # Non-linear mouse automation helpers
     ├── keyboard_controller.py # Human-like keyboard automation
-    └── text_recognition.py # AI OCR helpers (EasyOCR)
+    ├── text_recognition.py # Advanced OCR helpers (PaddleOCR)
+    └── video_text_recognition.py # Video OCR with temporal voting
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -74,6 +75,7 @@ insight_session = namespace["realtime_monitor.start_insight_session"]
 mouse_move = namespace["mouse_controller.move_mouse"]
 keyboard = namespace["keyboard_controller.default_keyboard"]
 ocr_extract = namespace["text_recognition.extract_text"]
+video_ocr = namespace["video_text_recognition.recognize_video_text"]
 
 streamer = stream(model_path="/path/to/vosk-model")
 emotion = emotion_interpret("I am thrilled to be here!")
@@ -85,6 +87,8 @@ session = insight_session()
 mouse_move(200, 300)
 keyboard().space()
 print(ocr_extract("poster.png"))
+video_result = video_ocr("ad_clip.mp4")
+print(video_result.dominant_text, video_result.candidates)
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -320,4 +324,33 @@ python -c "from modules.text_recognition import extract_text; print(extract_text
 The recognizer automatically loads the EasyOCR model for English by default; pass
 `languages=['en', 'fr']` or set `gpu=True` if you have GPU acceleration
 available.
+
+## Video Text Recognition Module
+
+`modules/video_text_recognition.py` samples frames from a video, applies the
+same enhanced preprocessing pipeline as the still-image OCR, and uses temporal
+voting to stabilize results when letters rotate or move. Install the PaddleOCR
+dependencies (see the previous section), then:
+
+```python
+from modules.video_text_recognition import recognize_video_text
+
+result = recognize_video_text("videos/rotating_logo.mp4", sample_rate=3.0)
+print("Dominant:", result.dominant_text)
+print("Candidates:", result.candidates)
+for frame in result.frames[:5]:
+    print(frame.timestamp, frame.text, frame.confidence)
+```
+
+CLI smoke test:
+
+```bash
+python -c "from modules.video_text_recognition import recognize_video_text; print(recognize_video_text('clip.mp4').dominant_text)"
+```
+
+The recognizer automatically skips redundant frames, boosts ones with motion,
+tries multiple rotations per frame, and votes for the most frequent/highest
+confidence string, which makes it resilient against rotating 3D glyphs or
+scrolling marquees. Adjust `sample_rate`, `max_frames`, or `motion_threshold`
+when processing very long or extremely dynamic videos.
 
