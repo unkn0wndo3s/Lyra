@@ -20,7 +20,8 @@ Lyra/
 └── modules/
     ├── __init__.py         # Marks directory as a package
     ├── live_speech.py      # Live speech-to-text streamer (Vosk + sounddevice)
-    └── emotion_interpreter.py  # Heuristic emotion detection for transcripts
+    ├── emotion_interpreter.py  # Heuristic emotion detection for transcripts
+    └── voice_identity.py   # Voice sampling and recognition utilities
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -64,10 +65,13 @@ from module_loader import get_namespace
 namespace = get_namespace()  # defaults to all modules, qualified names
 stream = namespace["live_speech.LiveSpeechStreamer"]
 emotion_interpret = namespace["emotion_interpreter.interpret_text"]
+voice_identifier_cls = namespace["voice_identity.VoiceIdentifier"]
 
 streamer = stream(model_path="/path/to/vosk-model")
 emotion = emotion_interpret("I am thrilled to be here!")
 print(emotion.formatted)  # this is **happy** functionning
+identifier = voice_identifier_cls()
+print(identifier.known_speakers)  # ()
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -147,4 +151,45 @@ streamer.start(
     emotion_aware_handler(on_emotion=handle_emotion)
 )
 ```
+
+## Voice Identity Module
+
+`modules/voice_identity.py` lets you collect reference samples and later check
+whether a new utterance matches someone who has already spoken. It stores MFCC
+embeddings (via optional `librosa` + `numpy`) and can capture samples straight
+from the microphone (`sounddevice`) or load audio files. Each speaker is stored
+as a tiny centroid vector that continuously blends new samples, keeping storage
+minimal while maintaining fast, vectorized recognition. Install the optional
+deps:
+
+```bash
+pip install librosa soundfile sounddevice
+```
+
+Sample workflow:
+
+```python
+from modules.voice_identity import VoiceIdentifier
+
+identifier = VoiceIdentifier()
+identifier.add_sample_from_file("Alice", "samples/alice.wav")
+identifier.add_sample_from_file("Bob", "samples/bob.wav")
+
+result = identifier.identify_from_file("incoming.wav")
+print(result.describe())
+
+if result.is_known:
+    print("Welcome back,", result.speaker)
+else:
+    print("New speaker detected")
+
+# upgrade an existing profile with another sentence (no extra storage)
+identifier.add_sample_from_file("Alice", "samples/alice_meeting.wav")
+```
+
+You can persist and reload databases with `save_database()` / `load_database()`,
+and `capture_and_sample()` records fresh sentences live so they can be
+recognized later in the session. The identifier refreshes its similarity cache
+automatically, so lookups remain O(1) per speaker even as you keep refining
+voice prints.
 
