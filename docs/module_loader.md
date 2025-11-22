@@ -26,7 +26,8 @@ Lyra/
     ├── mouse_controller.py # Non-linear mouse automation helpers
     ├── keyboard_controller.py # Human-like keyboard automation
     ├── text_recognition.py # Advanced OCR helpers (PaddleOCR)
-    └── video_text_recognition.py # Video OCR with temporal voting
+    ├── video_text_recognition.py # Video OCR with temporal voting
+    └── morpion_solver.py # Optimal tic-tac-toe (morpion) solver
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -76,6 +77,7 @@ mouse_move = namespace["mouse_controller.move_mouse"]
 keyboard = namespace["keyboard_controller.default_keyboard"]
 ocr_extract = namespace["text_recognition.extract_text"]
 video_ocr = namespace["video_text_recognition.recognize_video_text"]
+morpion = namespace["morpion_solver.best_move"]
 
 streamer = stream(model_path="/path/to/vosk-model")
 emotion = emotion_interpret("I am thrilled to be here!")
@@ -89,6 +91,7 @@ keyboard().space()
 print(ocr_extract("poster.png"))
 video_result = video_ocr("ad_clip.mp4")
 print(video_result.dominant_text, video_result.candidates)
+print(morpion(["X O", "   ", "   "]))  # -> (0, 2)
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -353,4 +356,26 @@ tries multiple rotations per frame, and votes for the most frequent/highest
 confidence string, which makes it resilient against rotating 3D glyphs or
 scrolling marquees. Adjust `sample_rate`, `max_frames`, or `motion_threshold`
 when processing very long or extremely dynamic videos.
+
+## Morpion Solver Module
+
+`modules/morpion_solver.py` exposes perfect-play tic-tac-toe logic with a simple
+API:
+
+```python
+from modules.morpion_solver import best_move
+
+board = [
+    "XO ",
+    " X ",
+    "  O",
+]
+print(best_move(board))        # infers player's turn automatically
+print(best_move(board, "O"))   # force evaluation for O
+```
+
+It returns `(row, col)` pairs (0-indexed). Games that are already finished raise
+helpful errors, and the solver will win/block immediately before falling back to
+minimax search. This allows you to plug it into UI automation, reinforcement
+learning environments, or debugging tools without reinventing the strategy.
 
