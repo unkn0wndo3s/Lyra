@@ -19,7 +19,8 @@ Lyra/
 ├── module_loader.py        # Dynamic loader script
 └── modules/
     ├── __init__.py         # Marks directory as a package
-    └── live_speech.py      # Live speech-to-text streamer (Vosk + sounddevice)
+    ├── live_speech.py      # Live speech-to-text streamer (Vosk + sounddevice)
+    └── emotion_interpreter.py  # Heuristic emotion detection for transcripts
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -62,9 +63,11 @@ from module_loader import get_namespace
 
 namespace = get_namespace()  # defaults to all modules, qualified names
 stream = namespace["live_speech.LiveSpeechStreamer"]
+emotion_interpret = namespace["emotion_interpreter.interpret_text"]
 
-# create an instance without worrying about manual imports
 streamer = stream(model_path="/path/to/vosk-model")
+emotion = emotion_interpret("I am thrilled to be here!")
+print(emotion.formatted)  # this is **happy** functionning
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -89,7 +92,7 @@ reports if any new modules were discovered.
 3. Run `python module_loader.py` or import `module_loader` inside your program.
 4. Call `load_unloaded_modules()` to import the new file without restarting.
 
-If you change existing modules, call `reload_module("live_speech")` or
+If you change existing modules, call `reload_module("emotion_interpreter")` or
 `reload_all_modules()` to pick up the updates at runtime.
 
 ## Live Speech Module
@@ -114,5 +117,34 @@ def on_transcript(event):
 
 streamer = LiveSpeechStreamer()
 streamer.start(on_transcript)
+```
+
+## Emotion Interpreter Module
+
+`modules/emotion_interpreter.py` detects the emotional tone of each transcript
+and formats it as ``this is **<emotion>** functionning`` so other systems can
+react immediately. Use it standalone:
+
+```python
+from modules.emotion_interpreter import interpret_text
+
+result = interpret_text("I feel wonderful about this launch!")
+print(result.formatted)  # this is **happy** functionning
+```
+
+Or wrap a live speech callback to obtain both transcripts and emotions in real
+time:
+
+```python
+from modules.emotion_interpreter import emotion_aware_handler
+from modules.live_speech import LiveSpeechStreamer
+
+def handle_emotion(result, event):
+    print(result.formatted, "| transcript:", event.text)
+
+streamer = LiveSpeechStreamer()
+streamer.start(
+    emotion_aware_handler(on_emotion=handle_emotion)
+)
 ```
 
