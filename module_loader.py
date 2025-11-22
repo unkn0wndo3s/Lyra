@@ -22,6 +22,7 @@ from typing import Callable, Dict, Iterable, Optional
 BASE_DIR = Path(__file__).parent
 MODULES_PACKAGE = "modules"
 MODULES_PATH = BASE_DIR / MODULES_PACKAGE
+MODULES_PATH_STR = str(MODULES_PATH)
 
 
 @dataclass
@@ -34,6 +35,8 @@ class LoadedModule:
 
 
 LOADED_MODULES: Dict[str, LoadedModule] = {}
+_DISCOVERED_MODULES: list[str] = []
+_MODULES_MTIME: int = -1
 
 
 def _ensure_modules_path_on_sys_path() -> None:
@@ -71,12 +74,26 @@ def _import_module(module_name: str) -> LoadedModule:
     return loaded
 
 
-def discover_module_names() -> list[str]:
-    """Return a sorted list of module names inside the modules directory."""
+def refresh_module_index(force: bool = False) -> list[str]:
+    """Refresh and cache the module list for faster repeated lookups."""
+    global _MODULES_MTIME, _DISCOVERED_MODULES
+
     if not MODULES_PATH.exists():
+        _DISCOVERED_MODULES = []
+        _MODULES_MTIME = -1
         return []
-    iterator = pkgutil.iter_modules([str(MODULES_PATH)])
-    return sorted(module.name for module in iterator)
+
+    current_mtime = MODULES_PATH.stat().st_mtime_ns
+    if force or current_mtime != _MODULES_MTIME or not _DISCOVERED_MODULES:
+        iterator = pkgutil.iter_modules([MODULES_PATH_STR])
+        _DISCOVERED_MODULES = sorted(module.name for module in iterator)
+        _MODULES_MTIME = current_mtime
+    return list(_DISCOVERED_MODULES)
+
+
+def discover_module_names() -> list[str]:
+    """Return a cached list of module names inside the modules directory."""
+    return refresh_module_index()
 
 
 def load_all_modules() -> Dict[str, LoadedModule]:

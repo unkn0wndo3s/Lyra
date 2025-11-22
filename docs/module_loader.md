@@ -21,7 +21,8 @@ Lyra/
     ├── __init__.py         # Marks directory as a package
     ├── live_speech.py      # Live speech-to-text streamer (Vosk + sounddevice)
     ├── emotion_interpreter.py  # Heuristic emotion detection for transcripts
-    └── voice_identity.py   # Voice sampling and recognition utilities
+    ├── voice_identity.py   # Voice sampling and recognition utilities
+    └── realtime_monitor.py # Fusion of STT + emotions + speaker ID
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -66,12 +67,15 @@ namespace = get_namespace()  # defaults to all modules, qualified names
 stream = namespace["live_speech.LiveSpeechStreamer"]
 emotion_interpret = namespace["emotion_interpreter.interpret_text"]
 voice_identifier_cls = namespace["voice_identity.VoiceIdentifier"]
+insight_session = namespace["realtime_monitor.start_insight_session"]
 
 streamer = stream(model_path="/path/to/vosk-model")
 emotion = emotion_interpret("I am thrilled to be here!")
 print(emotion.formatted)  # this is **happy** functionning
 identifier = voice_identifier_cls()
 print(identifier.known_speakers)  # ()
+# launch full realtime session (requires optional deps)
+session = insight_session()
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -192,4 +196,42 @@ and `capture_and_sample()` records fresh sentences live so they can be
 recognized later in the session. The identifier refreshes its similarity cache
 automatically, so lookups remain O(1) per speaker even as you keep refining
 voice prints.
+
+## Realtime Monitor Module
+
+`modules/realtime_monitor.py` ties everything together for an "all signals" live
+session: partial transcripts, final transcripts, emotion tags, and speaker
+identification. It depends on whatever backends each sub-system requires
+(install the optional packages mentioned earlier).
+
+```python
+import time
+from modules.realtime_monitor import start_insight_session
+from modules.voice_identity import VoiceIdentifier
+
+identifier = VoiceIdentifier()
+identifier.add_sample_from_file("Alice", "samples/alice.wav")
+
+session = start_insight_session(
+    voice_identifier=identifier,
+    stream_kwargs={"model_path": "/path/to/vosk-model-small-en-us-0.15"},
+)
+
+try:
+    while True:
+        time.sleep(1)
+except KeyboardInterrupt:
+    session.stop()
+```
+
+Each emitted insight contains:
+
+- `text`: live transcript snippet (partial/final).
+- `speaker`: the most likely known speaker (if identification is enabled).
+- `emotion.formatted`: string like `this is **happy** functionning`.
+- `speaker_scores`: raw cosine similarities for auditing/threshold tuning.
+
+You can pass your own `on_insight` callback when calling
+`start_insight_session(on_insight=my_handler, ...)` to integrate with logs,
+dashboards, or downstream automations.
 

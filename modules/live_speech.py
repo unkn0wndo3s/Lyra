@@ -47,6 +47,9 @@ class BackendUnavailable(RuntimeError):
     """Raised when the speech backend dependencies are missing."""
 
 
+AudioChunkCallback = Callable[[bytes, int], None]
+
+
 class LiveSpeechStreamer:
     """
     Stream audio from the default microphone and emit transcripts in real time.
@@ -78,7 +81,7 @@ class LiveSpeechStreamer:
         self.device = device
         self.block_duration = block_duration
 
-        self._queue: "queue.Queue[bytes]" = queue.Queue()
+        self._queue: "queue.Queue[tuple[str, object]]" = queue.Queue()
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
@@ -88,6 +91,7 @@ class LiveSpeechStreamer:
         on_transcript: Callable[[TranscriptEvent], None],
         *,
         emit_partials: bool = True,
+        on_audio_chunk: Optional[AudioChunkCallback] = None,
     ) -> None:
         """Begin streaming and invoke ``on_transcript`` as words are recognized."""
         if self._thread and self._thread.is_alive():
@@ -95,9 +99,14 @@ class LiveSpeechStreamer:
 
         recognizer = self._prepare_backend()
         self._stop_event.clear()
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+            except queue.Empty:
+                break
         self._thread = threading.Thread(
             target=self._run_stream,
-            args=(recognizer, on_transcript, emit_partials),
+            args=(recognizer, on_transcript, emit_partials, on_audio_chunk),
             daemon=True,
             name="LiveSpeechStreamer",
         )
@@ -108,7 +117,7 @@ class LiveSpeechStreamer:
         if not self._thread:
             return
         self._stop_event.set()
-        self._queue.put_nowait(b"")  # unblock the queue
+        self._queue.put_nowait(("stop", b""))  # unblock the queue
         self._thread.join(timeout=timeout)
         self._thread = None
         self._stop_event.clear()
@@ -140,14 +149,13 @@ class LiveSpeechStreamer:
         recognizer.SetWords(True)
         return recognizer
 
-    def _run_stream(self, recognizer, on_transcript, emit_partials):
+    def _run_stream(self, recognizer, on_transcript, emit_partials, on_audio_chunk: Optional[AudioChunkCallback]):
         assert sd is not None  # mypy hint
 
         def audio_callback(indata, frames, time, status):  # pragma: no cover - realtime
             if status:
-                # Drop status into queue as empty chunk so loop can report it later.
-                self._queue.put(status)
-            self._queue.put(bytes(indata))
+                self._queue.put(("status", status))
+            self._queue.put(("audio", bytes(indata)))
 
         blocksize = int(self.sample_rate * self.block_duration)
         stream = sd.RawInputStream(
@@ -162,22 +170,32 @@ class LiveSpeechStreamer:
         with stream:  # pragma: no cover - realtime
             while not self._stop_event.is_set():
                 try:
-                    data = self._queue.get(timeout=0.1)
+                    kind, payload = self._queue.get(timeout=0.1)
                 except queue.Empty:
                     continue
 
-                if isinstance(data, sd.CallbackFlags):
-                    # Surface warnings to the caller as partial text events.
-                    on_transcript(
-                        TranscriptEvent(
-                            text=f"[audio warning: {data}]",
-                            is_final=False,
+                if kind == "status":
+                    if isinstance(payload, sd.CallbackFlags):
+                        on_transcript(
+                            TranscriptEvent(
+                                text=f"[audio warning: {payload}]",
+                                is_final=False,
+                            )
                         )
-                    )
                     continue
 
+                if kind == "stop":
+                    continue
+
+                if kind != "audio":
+                    continue
+
+                data = payload
                 if not data:
                     continue
+
+                if on_audio_chunk:
+                    on_audio_chunk(data, self.sample_rate)
 
                 if recognizer.AcceptWaveform(data):
                     result = json.loads(recognizer.Result())

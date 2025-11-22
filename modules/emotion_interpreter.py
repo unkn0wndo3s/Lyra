@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, Mapping, Optional, Tuple
 
+import re
 from modules.live_speech import TranscriptEvent
 
 DEFAULT_KEYWORDS: Mapping[str, Tuple[str, ...]] = {
@@ -51,10 +52,12 @@ class EmotionInterpreter:
     ) -> None:
         self._default_emotion = default_emotion
         self._min_confidence = min_confidence
-        self._keywords: Dict[str, Tuple[str, ...]] = {
-            emotion: tuple(token.lower() for token in tokens)
-            for emotion, tokens in (keywords or DEFAULT_KEYWORDS).items()
+        source = keywords or DEFAULT_KEYWORDS
+        self._keyword_sets: Dict[str, frozenset[str]] = {
+            emotion: frozenset(token.lower() for token in tokens if token)
+            for emotion, tokens in source.items()
         }
+        self._word_pattern = re.compile(r"[a-z']+")
 
     def analyze(self, text: str) -> EmotionResult:
         """Assign an emotion to the given transcript text."""
@@ -67,19 +70,21 @@ class EmotionInterpreter:
                 source_text=text,
             )
 
+        words = set(self._word_pattern.findall(normalized))
         best_emotion = self._default_emotion
         best_score = 0
 
-        for emotion, tokens in self._keywords.items():
-            score = sum(1 for token in tokens if token and token in normalized)
+        for emotion, tokens in self._keyword_sets.items():
+            if not tokens:
+                continue
+            score = len(tokens & words)
             if score > best_score:
                 best_score = score
                 best_emotion = emotion
 
-        confidence = max(
-            self._min_confidence,
-            min(1.0, best_score / max(1, len(self._keywords.get(best_emotion, (1,))))),
-        )
+        token_count = len(self._keyword_sets.get(best_emotion, ()))
+        base_confidence = (best_score / token_count) if token_count else 0.0
+        confidence = max(self._min_confidence if best_score else 0.0, min(1.0, base_confidence))
 
         return EmotionResult(
             emotion=best_emotion,
