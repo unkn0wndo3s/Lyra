@@ -23,7 +23,8 @@ Lyra/
     ├── emotion_interpreter.py  # Heuristic emotion detection for transcripts
     ├── voice_identity.py   # Voice sampling and recognition utilities
     ├── realtime_monitor.py # Fusion of STT + emotions + speaker ID
-    └── mouse_controller.py # Non-linear mouse automation helpers
+    ├── mouse_controller.py # Non-linear mouse automation helpers
+    └── keyboard_controller.py # Human-like keyboard automation
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -70,6 +71,7 @@ emotion_interpret = namespace["emotion_interpreter.interpret_text"]
 voice_identifier_cls = namespace["voice_identity.VoiceIdentifier"]
 insight_session = namespace["realtime_monitor.start_insight_session"]
 mouse_move = namespace["mouse_controller.move_mouse"]
+keyboard = namespace["keyboard_controller.default_keyboard"]
 
 streamer = stream(model_path="/path/to/vosk-model")
 emotion = emotion_interpret("I am thrilled to be here!")
@@ -79,6 +81,7 @@ print(identifier.known_speakers)  # ()
 # launch full realtime session (requires optional deps)
 session = insight_session()
 mouse_move(200, 300)
+keyboard().space()
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -259,4 +262,29 @@ You can customize movement using `MotionProfile(duration=0.5, curve_strength=0.3
 for faster/slower timings or sharper arcs. All functions raise
 `BackendUnavailable` when `pyautogui` is not installed, so you can guard usage
 with `mouse_controller.backend_available()`.
+
+## Keyboard Controller Module
+
+`modules/keyboard_controller.py` exposes a `Keyboard` class where each key is a
+callable attribute. The backend is also `pyautogui`, so install it if you want
+to automate typing:
+
+```python
+from modules.keyboard_controller import Keyboard
+
+kb = Keyboard()
+kb.ctrl(action="down")
+kb.c()              # taps 'c' while ctrl is held
+kb.ctrl(action="up")
+
+kb.combo("shift", "alt", "tab")  # press simultaneously
+kb.space()                       # tap once
+kb.pressed_keys()                # ('shift', 'alt', 'tab', ...) if still held
+```
+
+You can press multiple keys at the same time via `combo`, hold keys (`action="down"`)
+and release them later (`action="up"`), or call `release_all()` to reset the
+state. Use `pressed_keys()` to inspect what is currently held and
+`keyboard_controller.backend_available()` to check whether `pyautogui` is
+available before invoking these helpers.
 
