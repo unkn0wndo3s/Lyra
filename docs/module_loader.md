@@ -24,7 +24,8 @@ Lyra/
     ├── voice_identity.py   # Voice sampling and recognition utilities
     ├── realtime_monitor.py # Fusion of STT + emotions + speaker ID
     ├── mouse_controller.py # Non-linear mouse automation helpers
-    └── keyboard_controller.py # Human-like keyboard automation
+    ├── keyboard_controller.py # Human-like keyboard automation
+    └── text_recognition.py # AI OCR helpers (EasyOCR)
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -72,6 +73,7 @@ voice_identifier_cls = namespace["voice_identity.VoiceIdentifier"]
 insight_session = namespace["realtime_monitor.start_insight_session"]
 mouse_move = namespace["mouse_controller.move_mouse"]
 keyboard = namespace["keyboard_controller.default_keyboard"]
+ocr_extract = namespace["text_recognition.extract_text"]
 
 streamer = stream(model_path="/path/to/vosk-model")
 emotion = emotion_interpret("I am thrilled to be here!")
@@ -82,6 +84,7 @@ print(identifier.known_speakers)  # ()
 session = insight_session()
 mouse_move(200, 300)
 keyboard().space()
+print(ocr_extract("poster.png"))
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -287,4 +290,34 @@ and release them later (`action="up"`), or call `release_all()` to reset the
 state. Use `pressed_keys()` to inspect what is currently held and
 `keyboard_controller.backend_available()` to check whether `pyautogui` is
 available before invoking these helpers.
+
+## Text Recognition Module
+
+`modules/text_recognition.py` wraps EasyOCR so you can extract text from clean
+documents or warped signage alike. Install the optional deps:
+
+```bash
+pip install easyocr opencv-python-headless Pillow
+```
+
+Example use:
+
+```python
+from modules.text_recognition import extract_text, recognize_text
+
+print(extract_text("photos/menu.jpg"))
+
+for item in recognize_text("photos/menu.jpg"):
+    print(item.text, item.confidence, item.box)
+```
+
+Command-line smoke test (replace the image path with a real file):
+
+```bash
+python -c "from modules.text_recognition import extract_text; print(extract_text('poster.png'))"
+```
+
+The recognizer automatically loads the EasyOCR model for English by default; pass
+`languages=['en', 'fr']` or set `gpu=True` if you have GPU acceleration
+available.
 
