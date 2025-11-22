@@ -19,8 +19,7 @@ Lyra/
 ├── module_loader.py        # Dynamic loader script
 └── modules/
     ├── __init__.py         # Marks directory as a package
-    ├── math_utils.py       # Example module exposing classes/functions
-    └── string_utils.py     # Example module exposing classes/functions
+    └── live_speech.py      # Live speech-to-text streamer (Vosk + sounddevice)
 ```
 
 You can drop any number of additional `.py` files into `modules/`; the loader
@@ -62,11 +61,10 @@ one dictionary so they can be used side-by-side without manual lookups:
 from module_loader import get_namespace
 
 namespace = get_namespace()  # defaults to all modules, qualified names
-add = namespace["math_utils.add"]
-shout = namespace["string_utils.shout"]
+stream = namespace["live_speech.LiveSpeechStreamer"]
 
-print(add(2, 3))      # 5
-print(shout("Lyra"))  # LYRA!
+# create an instance without worrying about manual imports
+streamer = stream(model_path="/path/to/vosk-model")
 ```
 
 Pass a list of module names to limit the selection, disable `qualified_names`
@@ -91,6 +89,30 @@ reports if any new modules were discovered.
 3. Run `python module_loader.py` or import `module_loader` inside your program.
 4. Call `load_unloaded_modules()` to import the new file without restarting.
 
-If you change existing modules, call `reload_module("image_utils")` or
+If you change existing modules, call `reload_module("live_speech")` or
 `reload_all_modules()` to pick up the updates at runtime.
+
+## Live Speech Module
+
+`modules/live_speech.py` provides `LiveSpeechStreamer`, which emits partial and
+final transcripts while the speaker is still talking. It uses the Vosk engine
+and the `sounddevice` library; install both and download a Vosk model before
+starting a stream:
+
+```bash
+pip install vosk sounddevice
+export VOSK_MODEL_PATH=/path/to/vosk-model-small-en-us-0.15
+```
+
+Then start listening:
+
+```python
+from modules.live_speech import LiveSpeechStreamer
+
+def on_transcript(event):
+    print("FINAL" if event.is_final else "LIVE", event.text)
+
+streamer = LiveSpeechStreamer()
+streamer.start(on_transcript)
+```
 
