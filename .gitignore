@@ -12,6 +12,7 @@ data/
 # Python packaging / build artifacts
 build/
 dist/
+models/
 *.egg-info/
 
 # Logs / runtime files
