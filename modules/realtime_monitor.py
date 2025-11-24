@@ -26,6 +26,12 @@ from modules.voice_identity import (
     BackendUnavailable as VoiceIdentityBackendUnavailable,
 )
 
+# Try to import Whisper streamer
+try:
+    from modules.whisper_live import WhisperLiveStreamer  # type: ignore
+except ImportError:
+    WhisperLiveStreamer = None  # type: ignore
+
 
 @dataclass
 class Insight:
@@ -85,8 +91,25 @@ class LiveInsightSession:
         voice_identifier: Optional[VoiceIdentifier] = None,
         smoothing_window: int = 6,
         stream_kwargs: Optional[dict] = None,
+        use_whisper: bool = False,
+        whisper_kwargs: Optional[dict] = None,
     ) -> None:
-        self.streamer = streamer or LiveSpeechStreamer(**(stream_kwargs or {}))
+        """
+        Initialize the live insight session.
+
+        Args:
+            use_whisper: If True, use Whisper (large-v3) for better accuracy.
+                Requires faster-whisper. Falls back to Vosk if unavailable.
+            whisper_kwargs: Additional arguments for WhisperLiveStreamer
+                (model_size, device, compute_type, etc.).
+        """
+        if use_whisper and WhisperLiveStreamer is not None:
+            whisper_opts = whisper_kwargs or {}
+            self.streamer = WhisperLiveStreamer(**whisper_opts)
+        else:
+            if use_whisper:
+                print("Warning: Whisper not available, falling back to Vosk")
+            self.streamer = streamer or LiveSpeechStreamer(**(stream_kwargs or {}))
         self.emotion_interpreter = emotion_interpreter or EmotionInterpreter()
         self.voice_identifier = voice_identifier
         self.on_insight = on_insight or self._default_sink

@@ -10,8 +10,9 @@ The implementation depends on optional third-party packages:
 
     pip install vosk sounddevice
 
-You must also download a Vosk acoustic model and point the streamer to it via
-``model_path`` or the ``VOSK_MODEL_PATH`` environment variable.
+A default Vosk model (vosk-model-small-en-us-0.15) is bundled in the ``models/``
+directory. You can override it by providing ``model_path`` or setting the
+``VOSK_MODEL_PATH`` environment variable.
 """
 
 from __future__ import annotations
@@ -23,6 +24,12 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
+
+# Default model path relative to this module's parent directory
+# Try larger model first, fall back to small if not available
+_DEFAULT_MODEL_PATH_LARGE = Path(__file__).parent.parent / "models" / "vosk-model-en-us-0.22"
+_DEFAULT_MODEL_PATH_SMALL = Path(__file__).parent.parent / "models" / "vosk-model-small-en-us-0.15"
+_DEFAULT_MODEL_PATH = _DEFAULT_MODEL_PATH_LARGE if _DEFAULT_MODEL_PATH_LARGE.exists() else _DEFAULT_MODEL_PATH_SMALL
 
 try:  # pragma: no cover - optional dependency
     import sounddevice as sd  # type: ignore
@@ -76,7 +83,12 @@ class LiveSpeechStreamer:
         device: Optional[int | str] = None,
         block_duration: float = 0.5,
     ) -> None:
-        self.model_path = model_path or os.environ.get("VOSK_MODEL_PATH")
+        # Try: provided path -> env var -> default bundled model
+        self.model_path = (
+            model_path
+            or os.environ.get("VOSK_MODEL_PATH")
+            or (str(_DEFAULT_MODEL_PATH) if _DEFAULT_MODEL_PATH.exists() else None)
+        )
         self.sample_rate = sample_rate
         self.device = device
         self.block_duration = block_duration
@@ -137,8 +149,9 @@ class LiveSpeechStreamer:
             )
         if not self.model_path:
             raise BackendUnavailable(
-                "A Vosk model path is required. Provide the `model_path` argument "
-                "or set the VOSK_MODEL_PATH environment variable."
+                "A Vosk model path is required. Provide the `model_path` argument, "
+                "set the VOSK_MODEL_PATH environment variable, or ensure the default "
+                f"model exists at {_DEFAULT_MODEL_PATH}."
             )
         model_dir = Path(self.model_path)
         if not model_dir.exists():
