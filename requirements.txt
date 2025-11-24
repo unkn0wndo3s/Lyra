@@ -1,0 +1,28 @@
+# Core dependencies for all modules
+
+# Live Speech (Vosk)
+vosk>=0.3.45
+sounddevice>=0.4.6
+
+# Whisper Live Speech (High Accuracy)
+faster-whisper>=0.9.0
+torch>=2.0.0
+
+# Text Recognition (PaddleOCR)
+paddleocr>=2.7.0
+paddlepaddle>=2.5.0
+Pillow>=10.0.0
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+
+# Video Text Recognition (uses same OCR deps + numpy)
+# numpy already included above
+
+# Mouse & Keyboard Controller
+pyautogui>=0.9.54
+
+# Voice Identity (optional but recommended)
+librosa>=0.10.0
+soundfile>=0.12.0
+# sounddevice already included above
+
