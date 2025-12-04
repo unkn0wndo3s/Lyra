@@ -213,6 +213,8 @@ class WhisperLiveStreamer:
             # Buffer for accumulating audio until silence is detected
             phrase_buffer: list[float] = []
             last_speech_timestamp: Optional[float] = None
+            last_partial_timestamp: Optional[float] = None
+            partial_update_interval = 1.0  # Emit partial transcripts every 1 second during speech
             
             while not self._stop_event.is_set():
                 try:
@@ -222,9 +224,12 @@ class WhisperLiveStreamer:
                     if phrase_buffer and last_speech_timestamp is not None:
                         time_since_speech = time.time() - last_speech_timestamp
                         if time_since_speech >= self.silence_duration:
-                            # Process accumulated phrase
+                            # Process accumulated phrase after silence
                             if len(phrase_buffer) >= self.sample_rate * 0.3:  # At least 0.3 seconds
                                 audio_array = np.array(phrase_buffer, dtype=np.float32)
+                                
+                                # Print status before transcribing
+                                print("\n[STATUS] Transcribing...")
                                 
                                 # Transcribe with Whisper
                                 segments, _ = self._model.transcribe(
@@ -244,6 +249,25 @@ class WhisperLiveStreamer:
                                 # Clear buffer
                                 phrase_buffer.clear()
                                 last_speech_timestamp = None
+                                last_partial_timestamp = None
+                    # Check if we should emit partial transcript during active speech
+                    elif emit_partials and phrase_buffer and last_speech_timestamp is not None:
+                        time_since_partial = time.time() - (last_partial_timestamp or last_speech_timestamp)
+                        if time_since_partial >= partial_update_interval and len(phrase_buffer) >= self.sample_rate * 0.5:
+                            # Emit partial transcript
+                            audio_array = np.array(phrase_buffer, dtype=np.float32)
+                            segments, _ = self._model.transcribe(
+                                audio_array,
+                                language=self.language,
+                                beam_size=self.beam_size,
+                                vad_filter=True,
+                                vad_parameters=dict(min_silence_duration_ms=500),
+                            )
+                            text_parts = [seg.text.strip() for seg in segments if seg.text.strip()]
+                            if text_parts:
+                                partial_text = " ".join(text_parts)
+                                on_transcript(TranscriptEvent(text=partial_text, is_final=False))
+                            last_partial_timestamp = time.time()
                     continue
 
                 if len(chunk) == 0:
@@ -268,6 +292,9 @@ class WhisperLiveStreamer:
                             # Process accumulated phrase
                             if len(phrase_buffer) >= self.sample_rate * 0.3:  # At least 0.3 seconds
                                 audio_array = np.array(phrase_buffer, dtype=np.float32)
+                                
+                                # Print status before transcribing
+                                print("\n[STATUS] Transcribing...")
                                 
                                 # Transcribe with Whisper
                                 segments, _ = self._model.transcribe(
@@ -294,6 +321,9 @@ class WhisperLiveStreamer:
 
             audio_array = np.array(phrase_buffer, dtype=np.float32)
             if len(audio_array) > self.sample_rate * 0.3:  # At least 0.3 seconds
+                # Print status before transcribing
+                print("\n[STATUS] Transcribing...")
+                
                 segments, _ = self._model.transcribe(
                     audio_array,
                     language=self.language,

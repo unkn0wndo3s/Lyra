@@ -68,11 +68,14 @@ class JsonlLogStore(LogStore):
 
     def _serialize_turn(self, turn: "Turn") -> dict:
         """Serialize a Turn to a dictionary."""
-        return {
+        result = {
             "role": turn.role,
             "content": turn.content,
             "timestamp": turn.timestamp.isoformat(),
         }
+        if turn.speaker is not None:
+            result["speaker"] = turn.speaker
+        return result
 
     def _deserialize_turn(self, data: dict) -> "Turn":
         """Deserialize a dictionary to a Turn."""
@@ -80,6 +83,7 @@ class JsonlLogStore(LogStore):
             role=data["role"],
             content=data["content"],
             timestamp=datetime.fromisoformat(data["timestamp"]),
+            speaker=data.get("speaker"),  # Optional field for backward compatibility
         )
 
     def append(self, session_id: str, turn: "Turn") -> None:

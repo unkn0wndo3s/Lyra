@@ -24,6 +24,7 @@ class Turn:
     role: str  # "user" | "assistant" | "system"
     content: str
     timestamp: datetime
+    speaker: str | None = None  # Speaker identifier (from voice_identity)
 
 
 @dataclass

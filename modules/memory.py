@@ -180,6 +180,7 @@ def process_turn(
     session_id: str,
     role: str,
     content: str,
+    speaker: str | None = None,
 ) -> None:
     """
     Process a conversation turn and add it to memory.
@@ -189,10 +190,11 @@ def process_turn(
         session_id: Session identifier
         role: Turn role ("user", "assistant", or "system")
         content: Turn content
+        speaker: Optional speaker identifier (from voice_identity)
     """
     from datetime import datetime
 
-    turn = Turn(role=role, content=content, timestamp=datetime.utcnow())
+    turn = Turn(role=role, content=content, timestamp=datetime.utcnow(), speaker=speaker)
     manager.on_turn(session_id, turn)
 
 
