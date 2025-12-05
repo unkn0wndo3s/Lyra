@@ -16,7 +16,6 @@ import sys
 import time
 import threading
 import queue
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -33,150 +32,7 @@ except ImportError:
 from modules.voice_identity import VoiceIdentifier, IdentificationResult
 from modules.ollama_ai import OllamaAISession, create_ollama_clients
 from modules.memory import create_memory_manager, process_turn, get_context
-
-# Import sounddevice (same as live_speech module uses)
-try:
-    import sounddevice as sd  # type: ignore
-    import numpy as np  # type: ignore
-    SD_AVAILABLE = True
-except ImportError:
-    SD_AVAILABLE = False
-
-# Try to import TTS libraries that can generate audio
-TTS_AVAILABLE = False
-TTS_BACKEND = None
-
-try:
-    from gtts import gTTS  # type: ignore
-    TTS_AVAILABLE = True
-    TTS_BACKEND = "gtts"
-except ImportError:
-    try:
-        import pyttsx3  # type: ignore
-        TTS_AVAILABLE = True
-        TTS_BACKEND = "pyttsx3"
-    except ImportError:
-        pass
-
-
-class TTSEngine:
-    """
-    TTS engine using sounddevice (same infrastructure as live_speech module).
-    Uses sounddevice to play audio, similar to how live_speech uses it to capture audio.
-    """
-
-    def __init__(self, use_gtts: bool = True):
-        """
-        Initialize TTS engine.
-        
-        Args:
-            use_gtts: If True, use gTTS (requires internet). If False, use pyttsx3 (offline).
-        """
-        if not SD_AVAILABLE:
-            raise RuntimeError(
-                "sounddevice is required for TTS (same as live_speech uses). "
-                "Install it with: pip install sounddevice"
-            )
-        
-        self.use_gtts = use_gtts
-        self.backend = None
-        self.sample_rate = 22050  # Standard audio sample rate
-        self._tts_lock = threading.Lock()  # Lock for pyttsx3 to prevent concurrent calls
-        
-        if use_gtts:
-            if TTS_BACKEND == "gtts":
-                self.backend = "gtts"
-                print("TTS: Using gTTS + sounddevice (like live_speech module)")
-            else:
-                raise RuntimeError(
-                    "gTTS not available. Install it with: pip install gtts"
-                )
-        else:
-            if TTS_BACKEND == "pyttsx3":
-                try:
-                    # Test that pyttsx3 works, but we'll create fresh instances in speak()
-                    # to avoid "run loop already started" errors when called from multiple threads
-                    test_engine = pyttsx3.init()
-                    test_engine.stop()  # Clean up test engine
-                    self.backend = "pyttsx3"
-                    print("TTS: Using pyttsx3 (offline) - will create fresh engine for each speak call")
-                except Exception as e:
-                    raise RuntimeError(f"Failed to initialize pyttsx3: {e}")
-            else:
-                raise RuntimeError(
-                    "No TTS backend available. Install gtts or pyttsx3. "
-                    "Run: pip install gtts (or pip install pyttsx3)"
-                )
-
-    def speak(self, text: str) -> None:
-        """
-        Speak the given text using sounddevice (same as live_speech infrastructure).
-        
-        Args:
-            text: Text to speak
-        """
-        if not text.strip():
-            return
-
-        print(f"[TTS] Speaking: {text[:50]}..." if len(text) > 50 else f"[TTS] Speaking: {text}")
-
-        if self.backend == "gtts":
-            try:
-                import tempfile
-                import os
-                import librosa  # type: ignore
-
-                # Generate audio with gTTS
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp:
-                    tts = gTTS(text=text, lang='en', slow=False)
-                    tts.save(tmp.name)
-                    tmp_path = tmp.name
-
-                # Load audio file using librosa (same ecosystem as live_speech)
-                audio_data, sr = librosa.load(tmp_path, sr=self.sample_rate)
-                
-                # Play audio using sounddevice (same as live_speech uses for input)
-                sd.play(audio_data, samplerate=sr)
-                sd.wait()  # Wait until playback is finished
-
-                # Cleanup
-                try:
-                    os.unlink(tmp_path)
-                except:
-                    pass
-            except ImportError as e:
-                print(f"[TTS ERROR] Missing dependency: {e}")
-                print("Install with: pip install librosa soundfile")
-            except Exception as e:
-                print(f"[TTS ERROR] {e}")
-        elif self.backend == "pyttsx3":
-            # pyttsx3: Use lock to prevent concurrent calls and create fresh engine each time
-            # This avoids "run loop already started" errors when called from multiple threads
-            with self._tts_lock:
-                try:
-                    # Create a fresh engine instance for this call
-                    # pyttsx3 can't reuse engines after runAndWait(), so we create new ones
-                    engine = pyttsx3.init()
-                    # Configure voice settings
-                    voices = engine.getProperty('voices')
-                    if voices:
-                        for voice in voices:
-                            if 'female' in voice.name.lower() or 'zira' in voice.name.lower():
-                                engine.setProperty('voice', voice.id)
-                                break
-                        else:
-                            engine.setProperty('voice', voices[0].id)
-                    engine.setProperty('rate', 150)
-                    engine.setProperty('volume', 0.9)
-                    
-                    # Use the fresh engine for this call
-                    engine.say(text)
-                    engine.runAndWait()
-                    # Engine is automatically cleaned up after runAndWait() completes
-                except Exception as e:
-                    print(f"[TTS ERROR] {e}")
-                    import traceback
-                    traceback.print_exc()
+from modules.tts import TTSEngine, create_tts_engine, backend_available
 
 
 class AIVoiceSession:
@@ -188,12 +44,12 @@ class AIVoiceSession:
         session_id: str = "default-session",
         memory_storage_dir: Path | str = Path("memory_data"),
         voice_db_path: Optional[Path | str] = None,
-        use_tts: bool = True,
-        tts_use_gtts: bool = False,
         system_prompt: Optional[str] = None,
         whisper_model_size: str = "large-v3-turbo",
         whisper_device: str = "cpu",
         whisper_compute_type: str = "int8",
+        use_tts: bool = True,
+        tts_backend: Optional[str] = None,
     ):
         """
         Initialize the AI voice session.
@@ -203,30 +59,38 @@ class AIVoiceSession:
             session_id: Session identifier for memory
             memory_storage_dir: Directory for memory storage
             voice_db_path: Path to voice database (optional)
-            use_tts: Whether to use text-to-speech
-            tts_use_gtts: Use gTTS instead of pyttsx3
             system_prompt: Optional system prompt for AI
+            use_tts: Whether to use text-to-speech
+            tts_backend: TTS backend to use ("gtts" or "pyttsx3"). If None, auto-selects.
         """
         self.session_id = session_id
         self.model = model
 
-        # Initialize TTS (using sounddevice like live_speech module)
+        # Initialize TTS
         self.tts: Optional[TTSEngine] = None
         if use_tts:
-            if not SD_AVAILABLE:
-                print("WARNING: sounddevice not available (required for TTS, same as live_speech).")
-                print("  Install with: pip install sounddevice")
-            elif not TTS_AVAILABLE:
-                print("WARNING: TTS library not available. Install gtts or pyttsx3:")
-                print("  pip install gtts librosa soundfile  (for gTTS + sounddevice)")
-                print("  OR: pip install pyttsx3  (for offline TTS)")
-            else:
-                try:
-                    self.tts = TTSEngine(use_gtts=tts_use_gtts)
-                    print("TTS initialized successfully (using sounddevice like live_speech)")
-                except Exception as e:
-                    print(f"WARNING: Failed to initialize TTS: {e}")
-                    print("AI responses will be text-only")
+            try:
+                if tts_backend:
+                    # Use specified backend
+                    if backend_available(tts_backend):
+                        self.tts = TTSEngine(backend=tts_backend)
+                        print(f"TTS initialized with {tts_backend} backend")
+                    else:
+                        print(f"WARNING: TTS backend '{tts_backend}' not available")
+                        print("AI responses will be text-only")
+                else:
+                    # Auto-select backend
+                    self.tts = create_tts_engine()
+                    if self.tts:
+                        print(f"TTS initialized with auto-selected backend")
+                    else:
+                        print("WARNING: No TTS backend available")
+                        print("Install gtts and librosa: pip install gtts librosa soundfile")
+                        print("OR install pyttsx3: pip install pyttsx3")
+                        print("AI responses will be text-only")
+            except Exception as e:
+                print(f"WARNING: Failed to initialize TTS: {e}")
+                print("AI responses will be text-only")
         else:
             print("TTS disabled - AI responses will be text-only")
 
@@ -340,26 +204,41 @@ class AIVoiceSession:
                 return
 
             text = event.text.strip()
-            speaker_name = self._current_speaker or "Unknown"
-            speaker_label = f"[{speaker_name}]"
             
             if event.is_final:
-                # Final transcript - queue it for processing
-                print(f"\n[USER] {speaker_label} {text}")
+                # Final transcript - identify speaker first, then queue for processing
+                print(f"\n[USER] {text}")
                 
-                # Collect voice sample asynchronously (if we have audio buffer)
-                # Don't pass speaker_name - let identification determine it fresh from audio
-                self._collect_voice_sample_async()
+                # Identify speaker synchronously before processing message
+                # This ensures we have the correct speaker name before sending to AI
+                speaker_name, audio_chunks = self._identify_speaker_sync()
+                if not speaker_name:
+                    # If identification failed, use a default name
+                    speaker_name = "Unknown"
                 
-                # Add to queue (non-blocking, STT continues immediately)
+                speaker_label = f"[{speaker_name}]"
+                print(f"[VOICE ID] Identified as: {speaker_label}")
+                
+                # Collect voice sample asynchronously for future improvements (non-blocking)
+                # Pass the identified speaker name and the audio chunks we just used
+                # This ensures we only improve the speaker that was identified, not a default one
+                if speaker_name != "Unknown" and audio_chunks:
+                    self._collect_voice_sample_async(speaker_name, audio_chunks)
+                
+                # Format message with speaker name before queuing (same format as stored in memory)
+                formatted_message = f"[{speaker_name}]: {text}"
+                
+                # Add to queue with formatted message (non-blocking, STT continues immediately)
                 try:
-                    self._message_queue.put_nowait((text, speaker_name))
+                    self._message_queue.put_nowait((formatted_message, speaker_name))
                     print(f"[DEBUG] Message queued successfully (queue size: {self._message_queue.qsize()})")
                 except queue.Full:
                     print("[WARNING] Message queue full, dropping message")
                 # Return immediately so STT can continue listening
             else:
                 # Partial/live transcript - just show it
+                speaker_name = self._current_speaker or "Unknown"
+                speaker_label = f"[{speaker_name}]"
                 print(f"\r[LIVE] {speaker_label} {text}", end="", flush=True)
         except Exception as e:
             # Never let exceptions in callback stop the streamer
@@ -373,15 +252,16 @@ class AIVoiceSession:
         while True:
             try:
                 # Wait for messages (blocking, but in separate thread)
-                text, speaker_name = self._message_queue.get(timeout=1.0)
+                # Message is already formatted as "[username]: message"
+                formatted_message, speaker_name = self._message_queue.get(timeout=1.0)
                 remaining = self._message_queue.qsize()
-                print(f"[DEBUG] Processing queued message (remaining in queue: {remaining}): {text[:50]}...")
+                print(f"[DEBUG] Processing queued message (remaining in queue: {remaining}): {formatted_message[:50]}...")
                 try:
-                    self._process_message_async(text, speaker_name)
+                    self._process_message_async(formatted_message, speaker_name)
                     print(f"[DEBUG] Finished processing message, ready for next (queue size: {self._message_queue.qsize()})")
                 except Exception as e:
                     # Error processing one message, but continue processing others
-                    print(f"[ERROR] Error processing message '{text[:50]}...': {e}")
+                    print(f"[ERROR] Error processing message '{formatted_message[:50]}...': {e}")
                     import traceback
                     traceback.print_exc()
                     # Continue to next message
@@ -394,26 +274,29 @@ class AIVoiceSession:
                 # Continue anyway - don't let the thread die
                 time.sleep(0.1)
 
-    def _process_message_async(self, text: str, speaker_name: str) -> None:
-        """Process message asynchronously to avoid blocking STT."""
+    def _process_message_async(self, formatted_message: str, speaker_name: str) -> None:
+        """Process message asynchronously to avoid blocking STT.
+        
+        Args:
+            formatted_message: Message already formatted as "[username]: message"
+            speaker_name: The speaker name (for logging)
+        """
         try:
             print(f"[STATUS] Processing message from {speaker_name}...")
-            # Store user message in memory with format "[username]: message" (async)
-            formatted_content = f"[{speaker_name}]: {text}"
             
-            # Store in memory (this is fast, but do it first)
+            # Store user message in memory (already formatted as "[username]: message")
             process_turn(
                 self.memory_manager,
                 self.session_id,
                 role="user",
-                content=formatted_content,
-                speaker=self._current_speaker,
+                content=formatted_message,
+                speaker=speaker_name,
             )
             print(f"[STATUS] Message stored in memory")
             
             # Process with AI (this can take time, but should return)
-            # Pass the formatted content (same as stored in memory) to AI
-            self._process_user_message(formatted_content)
+            # Pass the formatted message (same as stored in memory) to AI
+            self._process_user_message(formatted_message)
             print(f"[STATUS] Finished processing message from {speaker_name}")
         except Exception as e:
             print(f"[ERROR] Error processing message: {e}")
@@ -563,21 +446,134 @@ class AIVoiceSession:
                 traceback.print_exc()
         print("Session stopped.")
 
-    def _collect_voice_sample_async(self) -> None:
-        """Asynchronously collect and update voice sample from audio buffer.
+    def _identify_speaker_sync(self) -> tuple[Optional[str], list[bytes]]:
+        """Synchronously identify speaker from audio buffer before processing message.
         
-        Automatically detects if speaker exists, creates new entry if not, or improves existing one.
-        Does NOT rely on _current_speaker - identifies fresh from audio each time.
+        Returns:
+            Tuple of (speaker_name, audio_chunks). speaker_name is None if identification failed.
+            audio_chunks are the audio chunks used for identification (for async improvement).
         """
         if not self.voice_identifier:
-            return
+            return None, []
         
         # Get audio buffer (copy it to avoid locking for too long)
         with self._voice_buffer_lock:
             if not self._voice_audio_buffer:
-                return
+                return None, []
             audio_chunks = self._voice_audio_buffer.copy()
-            self._voice_audio_buffer.clear()  # Clear buffer after copying
+            # Clear buffer immediately after copying so next utterance gets fresh audio
+            # This prevents mixing audio from multiple speakers
+            self._voice_audio_buffer.clear()
+        
+        try:
+            import numpy as np
+            
+            # Combine all audio chunks
+            if not audio_chunks:
+                return None
+            
+            # Convert chunks to numpy array
+            audio_arrays = []
+            for chunk in audio_chunks:
+                audio = np.frombuffer(chunk, dtype="<i2").astype(np.float32)
+                if audio.size > 0:
+                    audio /= 32768.0
+                    audio_arrays.append(audio)
+            
+            if not audio_arrays:
+                return None
+            
+            # Concatenate all audio
+            full_audio = np.concatenate(audio_arrays)
+            
+            # Need at least 0.5 seconds of audio
+            if len(full_audio) < self.voice_identifier.sample_rate * 0.5:
+                return None
+            
+            # Try to identify the speaker from the full audio sample
+            result = self.voice_identifier.identify(
+                full_audio, 
+                sample_rate=self.voice_identifier.sample_rate, 
+                threshold=0.70
+            )
+            
+            final_speaker_name = None
+            is_new_speaker = False
+            
+            # If recognized as existing speaker, use that name
+            if result.is_known and result.confidence >= 0.70:
+                final_speaker_name = result.speaker
+                # Don't use "Unknown" as a valid speaker name
+                if final_speaker_name == "Unknown":
+                    final_speaker_name = None
+                else:
+                    # We found a known speaker
+                    old_speaker = self._current_speaker
+                    self._current_speaker = final_speaker_name
+                    is_new_speaker = False
+                    if old_speaker != final_speaker_name:
+                        print(f"[VOICE ID] Recognized existing speaker: {final_speaker_name} (confidence: {result.confidence:.2f})")
+                    else:
+                        print(f"[VOICE ID] Confirmed speaker: {final_speaker_name} (confidence: {result.confidence:.2f})")
+            
+            # If we didn't recognize a speaker, create a new one
+            if final_speaker_name is None:
+                # Not recognized - create a new speaker entry
+                known_speakers = set(self.voice_identifier.known_speakers)
+                known_speakers.discard("Unknown")
+                
+                while f"Speaker_{self._next_speaker_id}" in known_speakers:
+                    self._next_speaker_id += 1
+                final_speaker_name = f"Speaker_{self._next_speaker_id}"
+                is_new_speaker = True
+                self._next_speaker_id += 1
+                self._current_speaker = final_speaker_name
+                
+                if result.speaker and result.confidence > 0:
+                    print(f"[VOICE ID] Created new speaker: {final_speaker_name} (best match: {result.speaker} with confidence {result.confidence:.2f}, below threshold)")
+                else:
+                    print(f"[VOICE ID] Created new speaker: {final_speaker_name} (no match found)")
+            
+            # Don't add sample here - let the async method handle it
+            # This ensures we only improve the speaker that was identified, not a default one
+            # The async method will use the same audio chunks we just processed
+            duration = len(full_audio) / self.voice_identifier.sample_rate
+            if is_new_speaker:
+                print(f"[VOICE ID] Identified new speaker: '{final_speaker_name}' ({duration:.1f}s)")
+            else:
+                print(f"[VOICE ID] Identified existing speaker: '{final_speaker_name}' ({duration:.1f}s)")
+            
+            # Save database immediately for new speakers, periodically for existing
+            current_time = time.time()
+            if is_new_speaker or (current_time - self._last_voice_save_time >= self._voice_save_interval):
+                try:
+                    self.voice_identifier.save_database(self.voice_db_path)
+                    self._last_voice_save_time = current_time
+                    if is_new_speaker:
+                        print(f"[VOICE ID] Saved voice database with new speaker")
+                except Exception as e:
+                    print(f"[VOICE ID] Warning: Failed to save voice database: {e}")
+            
+            return final_speaker_name, audio_chunks
+            
+        except Exception as e:
+            print(f"[VOICE ID] Error identifying speaker: {e}")
+            import traceback
+            traceback.print_exc()
+            return None, []
+
+    def _collect_voice_sample_async(self, speaker_name: str, audio_chunks: list[bytes]) -> None:
+        """Asynchronously improve voice sample for the identified speaker.
+        
+        This only improves the voice sample for the speaker that was already identified,
+        preventing improvements to the wrong speaker when multiple users are in the chat.
+        
+        Args:
+            speaker_name: The speaker name that was already identified synchronously
+            audio_chunks: The audio chunks that were used for identification (already copied)
+        """
+        if not self.voice_identifier or not speaker_name or speaker_name == "Unknown":
+            return
         
         # Process in background thread
         def collect_sample():
@@ -606,68 +602,22 @@ class AIVoiceSession:
                 if len(full_audio) < self.voice_identifier.sample_rate * 0.5:
                     return
                 
-                # Try to identify the speaker from the full audio sample
-                # Use reasonable threshold (0.70) - if recognized, use and improve; if not, create new
-                result = self.voice_identifier.identify(full_audio, sample_rate=self.voice_identifier.sample_rate, threshold=0.70)
-                
-                # Determine the speaker name to use
-                final_speaker_name = None
-                is_new_speaker = False
-                
-                # Simple logic: if recognized as existing speaker, use and improve; otherwise create new
-                if result.is_known and result.confidence >= 0.70:
-                    # We recognized an existing speaker - use that name and improve their embedding
-                    final_speaker_name = result.speaker
-                    # Don't use "Unknown" as a valid speaker name - treat it as unknown
-                    if final_speaker_name == "Unknown":
-                        final_speaker_name = None
-                    else:
-                        # We found a known speaker - use it and improve their embedding
-                        old_speaker = self._current_speaker
-                        self._current_speaker = final_speaker_name
-                        is_new_speaker = False  # This is an existing speaker - we'll improve their embedding
-                        if old_speaker != final_speaker_name:
-                            print(f"[VOICE DB] Recognized existing speaker: {final_speaker_name} (confidence: {result.confidence:.2f}, was: {old_speaker})")
-                        else:
-                            print(f"[VOICE DB] Confirmed speaker: {final_speaker_name} (confidence: {result.confidence:.2f})")
-                
-                # If we didn't recognize a speaker, create a new one
-                if final_speaker_name is None:
-                    # Not recognized - create a new speaker entry
-                    # Find next available speaker name
-                    known_speakers = set(self.voice_identifier.known_speakers)
-                    # Remove "Unknown" from known speakers (we don't want to use it)
-                    known_speakers.discard("Unknown")
-                    
-                    while f"Speaker_{self._next_speaker_id}" in known_speakers:
-                        self._next_speaker_id += 1
-                    final_speaker_name = f"Speaker_{self._next_speaker_id}"
-                    is_new_speaker = True
-                    self._next_speaker_id += 1
-                    self._current_speaker = final_speaker_name
-                    # Show why we created a new speaker
-                    if result.speaker and result.confidence > 0:
-                        print(f"[VOICE DB] Created new speaker: {final_speaker_name} (best match: {result.speaker} with confidence {result.confidence:.2f}, below threshold 0.70)")
-                    else:
-                        print(f"[VOICE DB] Created new speaker: {final_speaker_name} (no match found)")
-                
-                # Add/update voice sample (add_sample handles both new and existing)
+                # Only improve the voice sample for the speaker that was already identified
+                # Use the speaker_name that was passed in - don't re-identify
+                print(f"[VOICE DB] Improving voice sample for identified speaker: '{speaker_name}'")
                 self.voice_identifier.add_sample(
-                    final_speaker_name,
+                    speaker_name,
                     full_audio,
                     sample_rate=self.voice_identifier.sample_rate
                 )
                 
                 duration = len(full_audio) / self.voice_identifier.sample_rate
-                if is_new_speaker:
-                    print(f"[VOICE DB] Created voice sample for '{final_speaker_name}' ({duration:.1f}s)")
+                # Get sample count to show improvement
+                if speaker_name in self.voice_identifier._prints:
+                    sample_count = self.voice_identifier._prints[speaker_name].sample_count
+                    print(f"[VOICE DB] Improved voice sample for '{speaker_name}' ({duration:.1f}s, {sample_count} samples)")
                 else:
-                    # Get sample count to show improvement
-                    if final_speaker_name in self.voice_identifier._prints:
-                        sample_count = self.voice_identifier._prints[final_speaker_name].sample_count
-                        print(f"[VOICE DB] Improved voice sample for '{final_speaker_name}' ({duration:.1f}s, {sample_count} samples)")
-                    else:
-                        print(f"[VOICE DB] Updated voice sample for '{final_speaker_name}' ({duration:.1f}s)")
+                    print(f"[VOICE DB] Updated voice sample for '{speaker_name}' ({duration:.1f}s)")
                 
                 # Save database periodically (async, don't block)
                 current_time = time.time()
@@ -744,18 +694,18 @@ def main():
         help="Path to voice database file",
     )
     parser.add_argument(
+        "--system-prompt",
+        help="System prompt for AI",
+    )
+    parser.add_argument(
         "--no-tts",
         action="store_true",
         help="Disable text-to-speech",
     )
     parser.add_argument(
-        "--use-gtts",
-        action="store_true",
-        help="Use gTTS instead of pyttsx3",
-    )
-    parser.add_argument(
-        "--system-prompt",
-        help="System prompt for AI",
+        "--tts-backend",
+        choices=["gtts", "pyttsx3"],
+        help="TTS backend to use (gtts or pyttsx3). If not specified, auto-selects available backend.",
     )
     parser.add_argument(
         "--whisper-model",
@@ -821,12 +771,12 @@ def main():
         session_id=args.session_id,
         memory_storage_dir=Path(args.memory_dir),
         voice_db_path=Path(args.voice_db) if args.voice_db else None,
-        use_tts=not args.no_tts,
-        tts_use_gtts=args.use_gtts,
         system_prompt=args.system_prompt,
         whisper_model_size=args.whisper_model,
         whisper_device=args.whisper_device,
         whisper_compute_type=args.whisper_compute_type,
+        use_tts=not args.no_tts,
+        tts_backend=args.tts_backend,
     )
 
     session.start()
