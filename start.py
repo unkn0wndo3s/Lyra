@@ -3,6 +3,7 @@ import numpy as np
 import queue
 import time
 import modules.speech_to_text as stt
+import modules.AI as ai
 
 samplerate = 16000
 block_duration = 0.1
@@ -15,9 +16,14 @@ def callback(indata, frames, time_, status):
     audio_q.put(indata.copy())
 
 def on_audio_captured(data):
-    print("audio captured")
+    print("transcribing audio...")
     text = stt.transcribe_audio_block(data)
-    print(text)
+    if text == "":
+        print("no text detected")
+        return
+    print("sending audio to AI...")
+    response = ai.send_history([{"role": "user", "content": text}], "")
+    print("AI response:", response)
 
 with sd.InputStream(channels=1, samplerate=samplerate, callback=callback):
     buffer = []
