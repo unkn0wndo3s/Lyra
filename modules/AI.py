@@ -1,5 +1,6 @@
 from multiprocessing import context
 from typing import List, Dict, Optional
+from modules.memory import MemoryContent
 import time
 try:
     import ollama
@@ -57,3 +58,10 @@ def send_history(messages: List[Dict], context: str, host: Optional[str] = None,
                 raise RuntimeError(f"Ollama error: {e}") from e
         except Exception as e:
             raise RuntimeError(f"Error while calling the model: {e}") from e
+
+def get_history(memory: List[MemoryContent]) -> List[Dict]:
+    history = []
+    for item in memory:
+        if item["event"] == "message":
+            history.append({"role": item["role"], "content": item["content"]})
+    return history
