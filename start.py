@@ -4,7 +4,7 @@ import queue
 import time
 import modules.speech_to_text as stt
 import modules.AI as ai
-import modules.tts as tts
+import modules.text_to_speech as tts
 
 samplerate = 16000
 block_duration = 0.1
