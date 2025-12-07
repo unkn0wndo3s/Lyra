@@ -4,6 +4,7 @@ import queue
 import time
 import modules.speech_to_text as stt
 import modules.AI as ai
+import modules.tts as tts
 
 samplerate = 16000
 block_duration = 0.1
@@ -24,6 +25,12 @@ def on_audio_captured(data):
     print("sending audio to AI...")
     response = ai.send_history([{"role": "user", "content": text}], "")
     print("AI response:", response)
+    print("synthesizing audio...")
+    audio = tts.synthesize_text(response)
+    print("playing audio...")
+    sd.play(audio, samplerate)
+    sd.wait()
+    print("audio played")
 
 with sd.InputStream(channels=1, samplerate=samplerate, callback=callback):
     buffer = []
