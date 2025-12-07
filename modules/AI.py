@@ -1,6 +1,6 @@
 from multiprocessing import context
 from typing import List, Dict, Optional
-from modules.memory import MemoryContent
+from memory import MemoryContent
 import time
 try:
     import ollama
@@ -8,7 +8,7 @@ try:
 except Exception as e:
     raise ImportError("the package 'ollama' is required. Install it with: 'pip install ollama'") from e
 model="P2Wdisabled/lyra:7b"
-def send_history(messages: List[Dict], context: str, host: Optional[str] = None, retry_pull: bool = True) -> str:
+def send_history(messages: List[Dict], context: str, model: str = model, host: Optional[str] = None, retry_pull: bool = True) -> str:
     if not isinstance(messages, list):
         raise TypeError("messages must be a list of objects")
     if not isinstance(context, str):
