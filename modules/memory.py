@@ -1,6 +1,6 @@
 import json
 import os
-from typing import TypedDict
+from typing import TypedDict, List
 
 memory_file = "./memory/memory.jsonl"
 
@@ -20,7 +20,7 @@ def append_jsonl(data: MemoryContent, path: str = memory_file) -> None:
     with open(path, "a", encoding="utf-8") as f:
         f.write(line + "\n")
 
-def read_jsonl(path=memory_file):
+def read_jsonl(path=memory_file) -> List[MemoryContent]:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if not os.path.exists(path):
         open(path, "a", encoding="utf-8").close()
