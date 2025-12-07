@@ -5,6 +5,7 @@ import time
 import modules.speech_to_text as stt
 import modules.AI as ai
 import modules.text_to_speech as tts
+import modules.memory as memory
 
 samplerate = 16000
 block_duration = 0.1
@@ -23,7 +24,9 @@ def on_audio_captured(data):
         print("no text detected")
         return
     print("sending audio to AI...")
-    response = ai.send_history([{"role": "user", "content": text}], "")
+    memory.append_jsonl({"event": "message", "content": text, "timestamp": time.time(), "role": "user", "username": "test_user"})
+    response = ai.send_history(memory.read_jsonl(), context="")
+    memory.append_jsonl({"event": "message", "content": response, "timestamp": time.time(), "role": "assistant", "username": "test_assistant"})
     print("AI response:", response)
     print("synthesizing audio...")
     audio = tts.synthesize_text(response)
