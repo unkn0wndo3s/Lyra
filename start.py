@@ -36,7 +36,7 @@ with sd.InputStream(channels=1, samplerate=samplerate, callback=callback):
     buffer = []
     recording = False
     last_voice_time = None
-
+    print("listening...")
     while True:
         block = audio_q.get()
         volume = np.linalg.norm(block)
