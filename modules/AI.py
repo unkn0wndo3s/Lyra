@@ -59,9 +59,10 @@ def send_history(messages: List[Dict], context: str, host: Optional[str] = None,
         except Exception as e:
             raise RuntimeError(f"Error while calling the model: {e}") from e
 
+#get the last 10 messages (from timestamp)
 def get_history(memory: List[MemoryContent]) -> List[Dict]:
     history = []
     for item in memory:
         if item["event"] == "message":
             history.append({"role": item["role"], "content": item["content"]})
-    return history
+    return history[-10:] if len(history) > 10 else history
