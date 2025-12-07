@@ -1,6 +1,7 @@
 import tempfile
 import os
 import wave
+import numpy
 
 def synthesize_text(text: str) -> "numpy.ndarray":
     try:
