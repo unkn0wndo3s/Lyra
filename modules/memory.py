@@ -11,7 +11,7 @@ class MemoryContent(TypedDict):
     event: str  # "message|action|event_type"
     content: str  # "message|action|event"
     timestamp: str  # "timestamp"
-    user: str  # "user|system|assistant"
+    role: str  # "user|system|assistant"
     username: str  # "username|system|event_name"
 
 def append_jsonl(data: MemoryContent, path: str = memory_file) -> None:
