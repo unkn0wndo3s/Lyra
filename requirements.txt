@@ -4,6 +4,9 @@
 vosk>=0.3.45
 sounddevice>=0.4.6
 
+# Text-to-Speech (pyttsx3 - offline, no ffmpeg required, uses system voices)
+pyttsx3>=2.99
+
 # Whisper Live Speech (High Accuracy)
 faster-whisper>=0.9.0
 torch>=2.0.0
