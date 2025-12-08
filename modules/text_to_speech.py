@@ -2,6 +2,7 @@ import tempfile
 import os
 import wave
 import numpy
+from transformers import pipeline
 
 def synthesize_text(text: str) -> "numpy.ndarray":
     try:
@@ -102,3 +103,31 @@ def synthesize_text(text: str) -> "numpy.ndarray":
             os.remove(tmp_path)
         except Exception:
             pass
+
+
+def test_realvoice():
+    # Use a pipeline as a high-level helper
+    from transformers import pipeline
+    
+    pipe = pipeline("text-to-speech", model="microsoft/VibeVoice-1.5B-hf")
+    text = "Hello, how are you?"
+    
+    # Prepare input data using apply_chat_template
+    input_data = pipe.processor.apply_chat_template(
+        [{"role": "0", "content": [{"type": "text", "text": text}]}], 
+        tokenize=False,
+    )
+    
+    # Generate speech with appropriate parameters
+    generate_kwargs = {
+        "cfg_scale": 1.3,
+        "n_diffusion_steps": 8,
+    }
+    output = pipe(input_data, generate_kwargs=generate_kwargs)
+    
+    # Extract audio from output
+    audio = output["audio"][0].squeeze()
+    return audio
+
+test_realvoice()
+
