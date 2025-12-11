@@ -1,7 +1,5 @@
 # Byte-compiled / cache
 __pycache__/
-*.py[cod]
-*$py.class
 
 # Virtual environments
 venv/
@@ -15,21 +13,10 @@ dist/
 models/
 *.egg-info/
 
-# Logs / runtime files
-*.log
-*.sqlite3
-*.db
-
 # IDE / editor settings
 .vscode/
 .idea/
 
-# OS metadata
-.DS_Store
-Thumbs.db
-
 # Coverage / test artifacts
 .pytest_cache/
-.coverage
-
 
