@@ -1,5 +1,6 @@
 # Byte-compiled / cache
 __pycache__/
+.hf_cache/
 
 # Virtual environments
 venv/
