@@ -1,111 +1,137 @@
 import os
-import glob
-from datasets import load_dataset
+from datasets import load_dataset, Dataset
 from tokenizers import Tokenizer, models, pre_tokenizers, trainers, processors
-from transformers import AutoTokenizer
+from transformers import PreTrainedTokenizerFast
+from multiprocessing import freeze_support
 
-# --- CONFIGURATION ---
+# ================= CONFIG =================
 DATA_DIR = "./data"
-MODEL_NAME = "custom_unfiltered_gpt"
+MODEL_NAME = "Lyra"
+
 VOCAB_SIZE = 32000
-BLOCK_SIZE = 1024 # Sequence length for training
-TOKENIZER_PATH = f"{MODEL_NAME}_tokenizer.json"
+BLOCK_SIZE = 1024
+
+TOKENIZER_JSON = f"{MODEL_NAME}_tokenizer.json"
+TOKENIZER_CORPUS = f"{DATA_DIR}/tokenizer_corpus.txt"
+TOKENIZED_OUT = f"{DATA_DIR}/tokenized_blocks"
+
+MAX_TOKENIZER_DOCS = 50_000      # pour entraîner le tokenizer
+MAX_PRETRAIN_DOCS = 200_000      # réaliste sur 14 Go RAM
 
 os.makedirs(DATA_DIR, exist_ok=True)
-print("Setup complete. Starting data download and tokenization...")
 
-# 1. Download Datasets (Switching to monology/pile-uncopyrighted to fix the script error)
-try:
-    # Use a dataset that loads cleanly (JSON/Parquet builder)
-    # We will load a manageable subset for tokenizer training and a larger subset for pre-training.
-    print("Loading Base Corpus (monology/pile-uncopyrighted)...")
-    pile_uncopyrighted = load_dataset("monology/pile-uncopyrighted", split="train")
 
-    # Take a manageable number of records for the tokenizer corpus
-    tokenizer_data = pile_uncopyrighted.select(range(50000))
+def main():
+    print("=== DATA SETUP START ===")
 
-    # Load Conversational data for fine-tuning
-    print("Loading Conversational Data (daily_dialog)...")
-    dialog_dataset = load_dataset("daily_dialog", split="train")
+    # ================= 1. LOAD DATASET (STREAMING) =================
+    print("Loading Pile (streaming mode)...")
 
-    # Save a small local file for tokenizer training
-    with open(f"{DATA_DIR}/tokenizer_corpus.txt", "w", encoding="utf-8") as f:
-        for item in tokenizer_data:
-            # The 'text' field is used for raw tokenizer training
-            f.write(item['text'] + "\n")
+    pile = load_dataset(
+        "monology/pile-uncopyrighted",
+        split="train",
+        streaming=True
+    )
 
-    # Save the full dialog dataset for later use
-    dialog_dataset.save_to_disk(f"{DATA_DIR}/daily_dialog_disk")
+    # ================= 2. BUILD TOKENIZER CORPUS =================
+    print("Building tokenizer corpus...")
 
-except Exception as e:
-    print(f"Error loading datasets: {e}")
-    print("Please check your internet connection and Hugging Face Hub access.")
-    exit()
+    with open(TOKENIZER_CORPUS, "w", encoding="utf-8") as f:
+        for i, sample in enumerate(pile):
+            f.write(sample["text"] + "\n")
+            if i + 1 >= MAX_TOKENIZER_DOCS:
+                break
 
-# 2. Train Custom BPE Tokenizer
-def train_tokenizer(files, vocab_size, save_path):
+    print(f"Tokenizer corpus written ({MAX_TOKENIZER_DOCS} docs)")
+
+    # ================= 3. TRAIN TOKENIZER =================
+    print("Training BPE tokenizer...")
+
     tokenizer = Tokenizer(models.BPE())
     tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
 
     trainer = trainers.BpeTrainer(
-        vocab_size=vocab_size,
-        # IMPORTANT: Added custom tokens for the Monologue and Tool-Use features
-        special_tokens=["<|endoftext|>", "<|unk|>", "<|pad|>", "<|tool_call|>", "<|monologue|>"]
+        vocab_size=VOCAB_SIZE,
+        special_tokens=[
+            "<|endoftext|>",
+            "<|unk|>",
+            "<|pad|>",
+            "<|tool_call|>",
+            "<|monologue|>",
+        ],
     )
-    tokenizer.train(files=files, trainer=trainer)
 
-    # Post-processor for single sequence and saving
+    tokenizer.train(files=[TOKENIZER_CORPUS], trainer=trainer)
     tokenizer.post_processor = processors.ByteLevel(trim_offsets=False)
-    tokenizer.save(save_path)
-    print(f"Tokenizer trained and saved to {save_path}. Vocab size: {tokenizer.get_vocab_size()}")
+    tokenizer.save(TOKENIZER_JSON)
 
-train_tokenizer(
-    files=[f"{DATA_DIR}/tokenizer_corpus.txt"],
-    vocab_size=VOCAB_SIZE,
-    save_path=TOKENIZER_PATH
-)
+    print(f"Tokenizer saved → {TOKENIZER_JSON}")
 
-# 3. Process data for Pre-training (The larger Pile Subset)
-tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, trust_remote_code=True, unk_token="<|unk|>", pad_token="<|pad|>")
+    # ================= 4. LOAD TOKENIZER (HF FAST) =================
+    hf_tokenizer = PreTrainedTokenizerFast(
+        tokenizer_file=TOKENIZER_JSON,
+        unk_token="<|unk|>",
+        pad_token="<|pad|>",
+        eos_token="<|endoftext|>",
+    )
 
-# Re-load the main dataset for mapping (using a larger subset for training)
-# Select the first 1,000,000 documents for pre-training (adjust this number based on time/disk space)
-raw_train_data = pile_uncopyrighted.select(range(1000000))
+    # ================= 5. RELOAD DATASET (STREAMING AGAIN) =================
+    print("Reloading Pile for pretraining pass...")
 
-def tokenize_function(examples):
-    # Process text content for the model
-    return tokenizer(examples["text"], truncation=True, max_length=BLOCK_SIZE)
+    pile = load_dataset(
+        "monology/pile-uncopyrighted",
+        split="train",
+        streaming=True
+    )
 
-# Map tokenization to the entire dataset
-tokenized_dataset = raw_train_data.map(
-    tokenize_function,
-    remove_columns=raw_train_data.column_names,
-    batched=True,
-    num_proc=os.cpu_count() # Use multiple cores for speed
-)
+    def text_generator():
+        for i, sample in enumerate(pile):
+            if i >= MAX_PRETRAIN_DOCS:
+                break
+            yield {"text": sample["text"]}
 
-# Group texts into fixed-length blocks (CRITICAL for GPT pre-training)
-def group_texts(examples):
-    # Concatenate all texts.
-    concatenated_examples = {k: sum(examples[k], []) for k in examples.keys()}
-    total_length = len(concatenated_examples[list(examples.keys())[0]])
-    # We drop the small remainder, making sure all chunks are BLOCK_SIZE.
-    total_length = (total_length // BLOCK_SIZE) * BLOCK_SIZE
-    result = {
-        k: [t[i : i + BLOCK_SIZE] for i in range(0, total_length, BLOCK_SIZE)]
-        for k, t in concatenated_examples.items()
-    }
-    result["labels"] = result["input_ids"].copy()
-    return result
+    print("Building pretraining dataset...")
+    raw_dataset = Dataset.from_generator(text_generator)
 
-# Apply the grouping function
-grouped_tokenized_dataset = tokenized_dataset.map(
-    group_texts,
-    batched=True,
-    num_proc=os.cpu_count(),
-)
+    # ================= 6. TOKENIZE =================
+    def tokenize(batch):
+        return hf_tokenizer(
+            batch["text"],
+            truncation=True,
+            max_length=BLOCK_SIZE,
+        )
 
-# 4. Save the Final Tokenized Dataset for Phase 3
-grouped_tokenized_dataset.save_to_disk(f"{DATA_DIR}/tokenized_data_grouped")
+    tokenized = raw_dataset.map(
+        tokenize,
+        batched=True,
+        remove_columns=["text"],
+    )
 
-print(f"\nData setup and tokenization script finished. Final grouped dataset saved to {DATA_DIR}/tokenized_data_grouped. Data is ready for Phase 3.")
+    # ================= 7. GROUP INTO FIXED BLOCKS =================
+    def group_texts(examples):
+        concatenated = {k: sum(examples[k], []) for k in examples}
+        total_length = len(concatenated["input_ids"])
+        total_length = (total_length // BLOCK_SIZE) * BLOCK_SIZE
+
+        result = {
+            k: [v[i:i + BLOCK_SIZE] for i in range(0, total_length, BLOCK_SIZE)]
+            for k, v in concatenated.items()
+        }
+        result["labels"] = result["input_ids"].copy()
+        return result
+
+    grouped = tokenized.map(
+        group_texts,
+        batched=True,
+    )
+
+    # ================= 8. SAVE =================
+    grouped.save_to_disk(TOKENIZED_OUT)
+
+    print("\n=== DONE ===")
+    print(f"Tokenized dataset saved to: {TOKENIZED_OUT}")
+
+
+if __name__ == "__main__":
+    freeze_support()  # obligatoire sur Windows
+    main()
