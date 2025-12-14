@@ -1,77 +1,142 @@
-import torch
-from transformers import AutoConfig, AutoModelForCausalLM, TrainingArguments, Trainer
-from datasets import load_from_disk
-from tokenizers import Tokenizer
-from accelerate import Accelerator
 import os
+import torch
+from datasets import load_dataset
+from transformers import (
+    PreTrainedTokenizerFast,
+    AutoConfig,
+    AutoModelForCausalLM,
+    Trainer,
+    TrainingArguments,
+    DataCollatorForLanguageModeling
+)
+from torch.utils.data import IterableDataset
+from transformers.trainer_utils import get_last_checkpoint
 
-# --- CONFIGURATION (Match your VRAM/RAM constraints) ---
+# --- CONFIG ---
 OUTPUT_DIR = "./results_pretrain"
-TOKENIZER_PATH = "custom_unfiltered_gpt_tokenizer.json"
-DATA_PATH = "./data/tokenized_data_grouped" # Assuming the previous script saved the grouped data here
+TOKENIZER_PATH = "Lyra_tokenizer.json"
+MAX_LENGTH = 1024
+BATCH_SIZE = 1
+GRAD_ACCUM = 1
+LEARNING_RATE = 5e-5
+MAX_STEPS = 5000
+LOGGING_STEPS = 10
 
-# 1. Load Tokenizer
-tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_PATH, unk_token="<|unk|>", pad_token="<|pad|>", trust_remote_code=True)
-vocab_size = tokenizer.vocab_size
+# --- CHECKPOINT AUTO-DETECT ---
+last_checkpoint = None
+if os.path.isdir(OUTPUT_DIR):
+    last_checkpoint = get_last_checkpoint(OUTPUT_DIR)
 
-# 2. Define Custom GPT Architecture (~125M parameters, ideal for 6-8GB VRAM)
-#
+if last_checkpoint:
+    print(f"🟢 Reprise depuis le checkpoint : {last_checkpoint}")
+else:
+    print("🆕 Aucun checkpoint trouvé, entraînement depuis zéro")
+
+# --- LOAD TOKENIZER ---
+tokenizer = PreTrainedTokenizerFast(
+    tokenizer_file=TOKENIZER_PATH,
+    unk_token="<|unk|>",
+    pad_token="<|pad|>",
+    bos_token="<|endoftext|>",
+    eos_token="<|endoftext|>"
+)
+print("Tokenizer vocab size:", tokenizer.vocab_size)
+
+# --- MODEL ---
 config = AutoConfig.for_model(
     "gpt2",
-    vocab_size=vocab_size,
-    n_positions=1024,
-    n_ctx=1024,
-    n_embd=768,       # Embedding dimension
-    n_layer=12,       # Number of transformer layers
-    n_head=12,        # Number of attention heads
+    vocab_size=tokenizer.vocab_size,
+    n_positions=MAX_LENGTH,
+    n_ctx=MAX_LENGTH,
+    n_embd=768,
+    n_layer=12,
+    n_head=12,
     bos_token_id=tokenizer.bos_token_id,
     eos_token_id=tokenizer.eos_token_id,
     pad_token_id=tokenizer.pad_token_id
 )
 
 model = AutoModelForCausalLM.from_config(config)
-total_params = sum(p.numel() for p in model.parameters())
-print(f"Model initialized with {total_params:,} parameters.")
+print(f"Model initialized with {sum(p.numel() for p in model.parameters()):,} parameters.")
 
-# 3. Load Data (Assuming you run the data_setup.py and manually grouped it)
-# For this script to work, you would need to group the texts from
-# `data_setup.py` and save them locally. Using a placeholder here:
-# tokenized_datasets = load_from_disk(DATA_PATH)
-# To run this placeholder, please use a small dataset loaded via load_dataset:
-tokenized_datasets = load_dataset("wikitext", "wikitext-2-raw-v1", split="train").map(
-    lambda x: tokenizer(x["text"], truncation=True, max_length=1024, padding="max_length"),
-    batched=True, remove_columns=["text"]
+# --- STREAMING DATASET ---
+raw_dataset = load_dataset(
+    "monology/pile-uncopyrighted",
+    split="train",
+    streaming=True
 )
-tokenized_datasets = tokenized_datasets.train_test_split(test_size=0.05)
 
+class TextOnlyIterable(IterableDataset):
+    def __init__(self, dataset, tokenizer, max_length, max_samples=None):
+        self.dataset = dataset
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.max_samples = max_samples
 
-# 4. Training Arguments (VRAM-Efficient Settings)
+    def __iter__(self):
+        count = 0
+        for example in self.dataset:
+            text = example.get("text")
+            if not text:
+                continue
+
+            tokenized = self.tokenizer(
+                text,
+                truncation=True,
+                max_length=self.max_length,
+                padding="max_length",
+                return_tensors="pt"
+            )
+
+            tokenized = {k: v.squeeze(0) for k, v in tokenized.items()}
+            yield tokenized
+
+            count += 1
+            if self.max_samples and count >= self.max_samples:
+                break
+
+train_dataset = TextOnlyIterable(
+    raw_dataset,
+    tokenizer,
+    MAX_LENGTH,
+    max_samples=5000  # enlève cette ligne pour du vrai prétraining
+)
+
+# --- DATA COLLATOR ---
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer,
+    mlm=False
+)
+
+# --- TRAINING ARGUMENTS ---
 training_args = TrainingArguments(
     output_dir=OUTPUT_DIR,
-    per_device_train_batch_size=1, # CRITICAL: Max VRAM usage
-    gradient_accumulation_steps=32, # Simulate a batch size of 32
-    fp16=True,                      # Use 16-bit precision for memory saving
-    learning_rate=5e-5,
-    num_train_epochs=3,
-    logging_steps=100,
-    save_steps=1000,
+    per_device_train_batch_size=BATCH_SIZE,
+    gradient_accumulation_steps=GRAD_ACCUM,
+    learning_rate=LEARNING_RATE,
+    fp16=True,
+    logging_steps=LOGGING_STEPS,
+    logging_first_step=True,
+    save_steps=500,
     save_total_limit=2,
-    deepspeed="./ds_config_zero1.json", # Link to DeepSpeed config (see Step 3.2)
-    gradient_checkpointing=True, # Saves VRAM by re-computing gradients
-    ddp_find_unused_parameters=False,
-    optim="adamw_hf",
+    gradient_checkpointing=True,
+    remove_unused_columns=False,
+    report_to=[],
+    max_steps=MAX_STEPS,
+    dataloader_drop_last=True
 )
 
-# 5. Initialize Trainer
+# --- TRAINER ---
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=tokenized_datasets["train"],
+    train_dataset=train_dataset,
+    data_collator=data_collator
 )
 
-# 6. Start Pre-training
-trainer.train()
+# --- TRAIN (AUTO RESUME) ---
+trainer.train(resume_from_checkpoint=last_checkpoint)
 
-# 7. Save Final Model
+# --- SAVE FINAL ---
 trainer.save_model(f"{OUTPUT_DIR}/final_pretrained_model")
 tokenizer.save_pretrained(f"{OUTPUT_DIR}/final_pretrained_model")
