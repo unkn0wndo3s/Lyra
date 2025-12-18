@@ -120,18 +120,20 @@ training_args = TrainingArguments(
     optim="adamw_bnb_8bit" # [NEW] Use 8-bit Adam
 )
 
+
 # --- TRAINER ---
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=tokenized_dataset,
-    data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False)
-)
+if __name__ == "__main__":
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=tokenized_dataset,
+        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    )
 
-# --- TRAIN ---
-trainer.train(resume_from_checkpoint=last_checkpoint)
+    # --- TRAIN ---
+    trainer.train(resume_from_checkpoint=last_checkpoint)
 
-# --- SAVE ---
-trainer.save_model(f"{OUTPUT_DIR}/final_chat_model")
-tokenizer.save_pretrained(f"{OUTPUT_DIR}/final_chat_model")
-print("Chat fine-tuning complete.")
+    # --- SAVE ---
+    trainer.save_model(f"{OUTPUT_DIR}/final_chat_model")
+    tokenizer.save_pretrained(f"{OUTPUT_DIR}/final_chat_model")
+    print("Chat fine-tuning complete.")
