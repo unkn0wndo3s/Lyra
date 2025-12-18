@@ -15,11 +15,12 @@ from transformers.trainer_utils import get_last_checkpoint
 # --- CONFIG ---
 OUTPUT_DIR = "./results_pretrain"
 TOKENIZER_PATH = "Lyra_tokenizer.json"
+CONFIG_PATH = "config_500m.json" # [NEW] Use the 500M config
 MAX_LENGTH = 1024
-BATCH_SIZE = 1
-GRAD_ACCUM = 1
-LEARNING_RATE = 5e-5
-MAX_STEPS = 5000
+BATCH_SIZE = 4 # [OPTIMIZED] Increased slightly, relying on DeepSpeed ZeRO-2
+GRAD_ACCUM = 4 # [OPTIMIZED] Effective batch ~16
+LEARNING_RATE = 1e-4 # [TUNED] Standard for training from scratch
+MAX_STEPS = 50000 # [REAL] Increased for actual training
 LOGGING_STEPS = 10
 
 # --- CHECKPOINT AUTO-DETECT ---
@@ -43,18 +44,23 @@ tokenizer = PreTrainedTokenizerFast(
 print("Tokenizer vocab size:", tokenizer.vocab_size)
 
 # --- MODEL ---
-config = AutoConfig.for_model(
-    "gpt2",
-    vocab_size=tokenizer.vocab_size,
-    n_positions=MAX_LENGTH,
-    n_ctx=MAX_LENGTH,
-    n_embd=768,
-    n_layer=12,
-    n_head=12,
-    bos_token_id=tokenizer.bos_token_id,
-    eos_token_id=tokenizer.eos_token_id,
-    pad_token_id=tokenizer.pad_token_id
-)
+if os.path.exists(CONFIG_PATH):
+    config = AutoConfig.from_pretrained(CONFIG_PATH)
+    print(f"Loaded configuration from {CONFIG_PATH}")
+else:
+    print(f"⚠️ Config file {CONFIG_PATH} not found. Falling back to GPT-2 Small defaults.")
+    config = AutoConfig.for_model(
+        "gpt2",
+        vocab_size=tokenizer.vocab_size,
+        n_positions=MAX_LENGTH,
+        n_ctx=MAX_LENGTH,
+        n_embd=768,
+        n_layer=12,
+        n_head=12,
+        bos_token_id=tokenizer.bos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id
+    )
 
 model = AutoModelForCausalLM.from_config(config)
 print(f"Model initialized with {sum(p.numel() for p in model.parameters()):,} parameters.")
@@ -99,7 +105,7 @@ train_dataset = TextOnlyIterable(
     raw_dataset,
     tokenizer,
     MAX_LENGTH,
-    max_samples=5000  # enlève cette ligne pour du vrai prétraining
+    max_samples=None # [REAL] Unlimited for real training
 )
 
 # --- DATA COLLATOR ---
@@ -114,16 +120,17 @@ training_args = TrainingArguments(
     per_device_train_batch_size=BATCH_SIZE,
     gradient_accumulation_steps=GRAD_ACCUM,
     learning_rate=LEARNING_RATE,
-    fp16=True,
+    fp16=True, # GPU support
     logging_steps=LOGGING_STEPS,
     logging_first_step=True,
-    save_steps=500,
-    save_total_limit=2,
-    gradient_checkpointing=True,
+    save_steps=1000,
+    save_total_limit=3,
+    gradient_checkpointing=True, # [CRITICAL] Saves VRAM
     remove_unused_columns=False,
     report_to=[],
     max_steps=MAX_STEPS,
-    dataloader_drop_last=True
+    dataloader_drop_last=True,
+    optim="adamw_bnb_8bit" # [NEW] Use 8-bit Adam to save memory (replaces DeepSpeed)
 )
 
 # --- TRAINER ---
@@ -138,5 +145,5 @@ trainer = Trainer(
 trainer.train(resume_from_checkpoint=last_checkpoint)
 
 # --- SAVE FINAL ---
-trainer.save_model(f"{OUTPUT_DIR}/final_pretrained_model")
-tokenizer.save_pretrained(f"{OUTPUT_DIR}/final_pretrained_model")
+trainer.save_model(f"{OUTPUT_DIR}/final_pretrained_500m")
+tokenizer.save_pretrained(f"{OUTPUT_DIR}/final_pretrained_500m")

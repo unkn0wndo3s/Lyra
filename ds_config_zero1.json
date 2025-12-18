@@ -8,9 +8,8 @@
     "min_loss_scale": 1
   },
   "zero_optimization": {
-    "stage": 1,
-    "offload_optimizer_states": true,
-    "offload_param": {
+    "stage": 2,
+    "offload_optimizer": {
       "device": "cpu",
       "pin_memory": true
     },
